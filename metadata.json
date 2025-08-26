@@ -1,0 +1,5 @@
+{
+  "name": "iPortfolio",
+  "description": "A sophisticated web application for portfolio construction, analysis, and optimization across multi-market equities and cryptocurrencies. Features include asset analysis, Markowitz optimization, and Monte Carlo simulations.",
+  "requestFramePermissions": []
+}
