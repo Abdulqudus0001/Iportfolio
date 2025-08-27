@@ -13,9 +13,11 @@ interface SidebarProps {
   currentView: View;
   setCurrentView: (view: View) => void;
   openLearnModal: () => void;
+  isSidebarOpen: boolean;
+  setIsSidebarOpen: (isOpen: boolean) => void;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ currentView, setCurrentView, openLearnModal }) => {
+const Sidebar: React.FC<SidebarProps> = ({ currentView, setCurrentView, openLearnModal, isSidebarOpen, setIsSidebarOpen }) => {
   const { tier, setTier } = useUserTier();
   const [isVideoOpen, setIsVideoOpen] = useState(false);
   const { savedPortfolios, deletePortfolio } = useSavedPortfolios();
@@ -37,27 +39,50 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setCurrentView, openLear
   const handleLoadPortfolio = (portfolio: (typeof savedPortfolios)[0]) => {
       loadPortfolio(portfolio);
       setCurrentView('portfolio');
+      setIsSidebarOpen(false);
   }
   
   const handleNewPortfolio = () => {
       clearPortfolio();
       setCurrentView('portfolio');
+      setIsSidebarOpen(false);
+  }
+
+  const handleViewChange = (view: View) => {
+    setCurrentView(view);
+    setIsSidebarOpen(false);
   }
 
   return (
     <>
-    <aside className="w-72 bg-light-card dark:bg-dark-card shadow-lg flex flex-col">
-      <div className="p-6 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
-        <h2 className="text-2xl font-bold text-brand-primary">iPortfolio</h2>
-         <button onClick={toggleTheme} className="p-2 rounded-full text-light-text-secondary dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors" aria-label="Toggle theme">
-            {theme === 'light' ? <MoonIcon /> : <SunIcon />}
-        </button>
+      {isSidebarOpen && (
+        <div
+          onClick={() => setIsSidebarOpen(false)}
+          className="fixed inset-0 bg-black bg-opacity-50 z-30 md:hidden"
+          aria-hidden="true"
+        />
+      )}
+      <aside className={`fixed inset-y-0 left-0 z-40 w-72 bg-light-card dark:bg-dark-card shadow-lg flex flex-col transform transition-transform duration-300 ease-in-out md:relative md:translate-x-0 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+        <div className="p-6 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
+          <h2 className="text-2xl font-bold text-brand-primary">iPortfolio</h2>
+           <div className="flex items-center gap-2">
+                <button onClick={toggleTheme} className="p-2 rounded-full text-light-text-secondary dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors" aria-label="Toggle theme">
+                    {theme === 'light' ? <MoonIcon /> : <SunIcon />}
+                </button>
+                <button
+                    onClick={() => setIsSidebarOpen(false)}
+                    className="p-2 rounded-full text-light-text-secondary dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors md:hidden"
+                    aria-label="Close sidebar"
+                >
+                    <CloseIcon />
+                </button>
+           </div>
       </div>
       <nav className="flex-grow p-4 space-y-2 overflow-y-auto">
         {navItems.map((item) => (
           <button
             key={item.id}
-            onClick={() => setCurrentView(item.id)}
+            onClick={() => handleViewChange(item.id)}
             className={`w-full flex items-center p-3 rounded-lg text-left transition-colors ${
               currentView === item.id
                 ? 'bg-brand-secondary text-white'
@@ -99,7 +124,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setCurrentView, openLear
             </div>
         ) : (
             <div className="p-2">
-                <Button onClick={() => setCurrentView('auth')} className="w-full">
+                <Button onClick={() => handleViewChange('auth')} className="w-full">
                     Sign In / Sign Up
                 </Button>
             </div>
@@ -157,5 +182,6 @@ const NewIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6
 const MoonIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" /></svg>;
 const SunIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" /></svg>;
 const CompareIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>;
+const CloseIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>;
 
 export default Sidebar;
