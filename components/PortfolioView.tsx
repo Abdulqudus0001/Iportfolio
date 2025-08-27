@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useUserTier } from '../context/UserTierContext';
-import { Asset, UserTier, OptimizationResult, MCMCResult, PortfolioTemplate, ConstraintOptions, GoalSettings, OptimizationModel, BlackLittermanView, Transaction, View, SavedPortfolio, Currency, CURRENCIES } from '../types';
+import { Asset, UserTier, OptimizationResult, MCMCResult, PortfolioTemplate, ConstraintOptions, GoalSettings, OptimizationModel, BlackLittermanView, Transaction, View, SavedPortfolio, Currency, CURRENCIES, DataSource } from '../types';
 import Card from './ui/Card';
 import Button from './ui/Button';
 import AnalysisLoader from './ui/AnalysisLoader';
@@ -21,8 +21,6 @@ import { useAuth } from '../context/AuthContext';
 import { supabase } from '../services/supabaseClient';
 import { getCurrencySymbol } from '../utils';
 import WarningBanner from './ui/WarningBanner';
-
-type DataSource = 'live' | 'cache' | 'static';
 
 interface PortfolioViewProps {
     setCurrentView: (view: View) => void;
@@ -309,7 +307,7 @@ const PortfolioView: React.FC<PortfolioViewProps> = ({ setCurrentView }) => {
             try {
                 const result = await portfolioService.calculatePortfolioMetricsFromCustomWeights(selectedAssets, customWeights, currency);
                 setOptimizationResult(result);
-                setAnalysisSource(result.source);
+                setAnalysisSource(result.source || 'static');
             } catch (error) {
                 console.error("Custom calculation error:", error);
                 const errorMessage = error instanceof Error ? error.message : String(error);
@@ -355,7 +353,7 @@ const PortfolioView: React.FC<PortfolioViewProps> = ({ setCurrentView }) => {
                 
                 setSelectedAssets(result.bestSharpe.weights);
                 setOptimizationResult(result.bestSharpe);
-                setAnalysisSource(result.source);
+                setAnalysisSource(result.source || 'static');
                 if (runner === 'mcmc' || optimizationModel === OptimizationModel.BlackLitterman) {
                     setMcmcResult(result);
                 }
