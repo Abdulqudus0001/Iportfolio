@@ -163,8 +163,15 @@ const PortfolioView: React.FC<PortfolioViewProps> = ({ setCurrentView }) => {
         }
     };
 
+    // FIX: Corrected a type mismatch where a string from the select input was
+    // assigned to a state expecting the `OptimizationModel` enum. This ensures
+    // that only valid enum values are set.
     const handleOptimizationModelChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-        setOptimizationModel(e.target.value as OptimizationModel);
+        const modelValue = e.target.value;
+        const enumKey = Object.keys(OptimizationModel).find(key => OptimizationModel[key as keyof typeof OptimizationModel] === modelValue);
+        if (enumKey) {
+            setOptimizationModel(OptimizationModel[enumKey as keyof typeof OptimizationModel]);
+        }
     };
 
     const handleWizardComplete = (settings: GoalSettings) => {
