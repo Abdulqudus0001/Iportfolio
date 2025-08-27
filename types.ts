@@ -78,6 +78,7 @@ export interface SimulationPoint {
 export type Currency = 'USD' | 'EUR' | 'GBP' | 'JPY' | 'INR' | 'NGN' | 'QAR' | 'SAR';
 export const CURRENCIES: Currency[] = ['USD', 'EUR', 'GBP', 'JPY', 'INR', 'NGN', 'QAR', 'SAR'];
 
+export type DataSource = 'live' | 'cache' | 'static';
 
 export interface OptimizationResult {
     weights: PortfolioAsset[];
@@ -85,12 +86,14 @@ export interface OptimizationResult {
     volatility: number;
     sharpeRatio: number;
     currency?: Currency;
+    source?: DataSource;
 }
 
 export interface MCMCResult {
     simulations: SimulationPoint[];
     bestSharpe: OptimizationResult;
     averageWeights: PortfolioAsset[];
+    source?: DataSource;
 }
 
 export interface CorrelationData {

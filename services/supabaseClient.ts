@@ -10,7 +10,8 @@ const supabaseUrl = 'https://avxgjocwbyxtnriuhscc.supabase.co';
 // You can find this in your Supabase project settings under "API".
 const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF2eGdqb2N3Ynl4dG5yaXVoc2NjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUzMTE2NTUsImV4cCI6MjA3MDg4NzY1NX0.kUgjhoaVHmwzlI0SXabdpMO8ObnBn0tm4k3_vKCz0DE'; 
 
-if (!supabaseUrl || !supabaseAnonKey || supabaseAnonKey === 'PASTE_YOUR_SUPABASE_ANON_KEY_HERE') {
+// FIX: Removed the comparison to the placeholder string, as the key is already present.
+if (!supabaseUrl || !supabaseAnonKey) {
   const errorMessage = "Supabase configuration is missing. Please open `services/supabaseClient.ts` and replace the placeholder with your actual Supabase anonymous key.";
   
   // Display a user-friendly error on the page
