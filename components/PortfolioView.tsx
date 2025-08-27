@@ -5,7 +5,7 @@ import Card from './ui/Card';
 import Button from './ui/Button';
 import AnalysisLoader from './ui/AnalysisLoader';
 import EfficientFrontierChart from './EfficientFrontierChart';
-import AdBanner from './AdBanner';
+import AdSenseBanner from './AdSenseBanner';
 import { usePortfolio } from '../context/PortfolioContext';
 import { useSavedPortfolios } from '../context/SavedPortfoliosContext';
 import Modal from './ui/Modal';
@@ -638,7 +638,10 @@ const PortfolioView: React.FC<PortfolioViewProps> = ({ setCurrentView }) => {
                             </div>
                         </Card>
                     )}
-                    <AdBanner type="inline" />
+                    <AdSenseBanner 
+                        data-ad-client="ca-pub-5175221516557079"
+                        data-ad-slot="4509195764" 
+                    />
                 </div>
             </div>
 

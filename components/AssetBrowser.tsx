@@ -4,7 +4,7 @@ import { marketDataService } from '../services/marketDataService';
 import Card from './ui/Card';
 import Loader from './ui/Loader';
 import PriceChart from './PriceChart';
-import AdBanner from './AdBanner';
+import AdSenseBanner from './AdSenseBanner';
 import { useUserTier } from '../context/UserTierContext';
 import { useWatchlist } from '../hooks/useWatchlist';
 import Tooltip from './ui/Tooltip';
@@ -391,7 +391,10 @@ const AssetBrowser: React.FC<AssetBrowserProps> = ({ openAiChat }) => {
                         <PriceChart ticker={selectedAsset.ticker} />
                     </Card>
                     
-                    <AdBanner type="inline" />
+                    <AdSenseBanner 
+                        data-ad-client="ca-pub-5175221516557079"
+                        data-ad-slot="7798554143"
+                    />
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <Card title="Key Ratios">

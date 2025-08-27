@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import Card from './ui/Card';
 import { useUserTier } from '../context/UserTierContext';
 import { UserTier } from '../types';
-import AdBanner from './AdBanner';
+import AdSenseBanner from './AdSenseBanner';
 import { usePortfolio } from '../context/PortfolioContext';
 import PortfolioCompositionCharts from './analytics/PortfolioCompositionCharts';
 import CorrelationMatrix from './analytics/CorrelationMatrix';
@@ -52,7 +52,11 @@ const AnalyticsView: React.FC<AnalyticsViewProps> = ({ openAiChat }) => {
     if (!isProOrHigher) { // Basic tier
         return (
             <div className="space-y-6">
-                <AdBanner type="banner" />
+                <AdSenseBanner 
+                    data-ad-client="ca-pub-5175221516557079"
+                    data-ad-slot="7938989097"
+                    data-ad-format="auto"
+                />
                 <Card title="Advanced Analytics">
                     <div className="text-center py-16">
                         <h2 className="text-2xl font-semibold text-brand-secondary mb-4">Unlock Deeper Insights</h2>
@@ -160,7 +164,10 @@ const AnalyticsView: React.FC<AnalyticsViewProps> = ({ openAiChat }) => {
                         </div>
                          {renderActiveTab()}
                          <div className="my-4">
-                            <AdBanner type="inline" />
+                            <AdSenseBanner 
+                                data-ad-client="ca-pub-5175221516557079"
+                                data-ad-slot="4168647933"
+                            />
                          </div>
                          {isProOrHigher && <RebalancingTool portfolio={optimizationResult!} />}
                     </Card>
