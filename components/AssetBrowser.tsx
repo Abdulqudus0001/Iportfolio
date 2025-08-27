@@ -225,8 +225,8 @@ const AssetBrowser: React.FC<AssetBrowserProps> = ({ openAiChat }) => {
   );
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-      <Card className="lg:col-span-1 h-full flex flex-col">
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <Card className="md:col-span-1 h-full flex flex-col">
         <h3 className="text-xl font-semibold text-brand-primary mb-4">Asset List</h3>
         <div className="mb-4 space-y-3">
             <input
@@ -313,7 +313,7 @@ const AssetBrowser: React.FC<AssetBrowserProps> = ({ openAiChat }) => {
         </div>
       </Card>
       
-      <div className="lg:col-span-2 space-y-6">
+      <div className="md:col-span-2 space-y-6">
         {selectedAsset ? (
           <>
             <Card isLoading={isLoadingDetails}>
