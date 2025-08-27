@@ -30,6 +30,8 @@ const AppContent: React.FC = () => {
   const [isAiChatOpen, setIsAiChatOpen] = useState(false);
   const [aiInitialPrompt, setAiInitialPrompt] = useState<string | undefined>(undefined);
   const [shareId, setShareId] = useState<string | null>(null);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+
 
   useEffect(() => {
       const params = new URLSearchParams(window.location.search);
@@ -91,13 +93,22 @@ const AppContent: React.FC = () => {
     <>
       {isFirstVisit && <GuidedTour onClose={closeTour} />}
       <LearnModal isOpen={isLearnModalOpen} onClose={() => setIsLearnModalOpen(false)} />
-      <div className="flex h-screen bg-light-bg text-light-text dark:bg-dark-bg dark:text-dark-text font-sans">
+      <div className="flex h-screen bg-light-bg text-light-text dark:bg-dark-bg font-sans">
         <Sidebar 
           currentView={currentView} 
           setCurrentView={setCurrentView} 
           openLearnModal={() => setIsLearnModalOpen(true)}
+          isSidebarOpen={isSidebarOpen}
+          setIsSidebarOpen={setIsSidebarOpen}
         />
-        <main className="flex-1 p-6 sm:p-8 overflow-y-auto">
+        <main className="flex-1 overflow-y-auto relative pt-16 px-6 pb-6 sm:px-8 sm:pb-8 md:p-8">
+            <button
+                onClick={() => setIsSidebarOpen(true)}
+                className="md:hidden absolute top-4 left-4 p-2 rounded-md text-light-text-secondary dark:text-dark-text-secondary hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors z-20"
+                aria-label="Open sidebar"
+            >
+                <MenuIcon />
+            </button>
            <div className="max-w-7xl mx-auto">
                 <div className="flex justify-between items-center mb-2">
                   <h1 className="text-3xl font-bold text-brand-primary">iPortfolio</h1>
@@ -138,7 +149,11 @@ const MagicWandIcon: React.FC = () => (
     </svg>
 );
 const BotIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>;
-
+const MenuIcon: React.FC = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+    </svg>
+);
 
 const App: React.FC = () => {
   return (
