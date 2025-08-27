@@ -50,9 +50,9 @@ const PriceChart: React.FC<PriceChartProps> = ({ ticker }) => {
 
   return (
     <div className="relative" style={{ width: '100%', height: 300 }}>
-        {source === 'static' && (
+        {source !== 'live' && (
             <div className="absolute top-2 right-2 text-xs bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200 px-2 py-1 rounded-full z-10">
-                Demo Data
+                {source === 'static' ? 'Demo Data' : 'Cached Data'}
             </div>
         )}
         <ResponsiveContainer>

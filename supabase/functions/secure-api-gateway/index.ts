@@ -32,7 +32,7 @@ const getAssetPriceHistory = async (ticker: string) => {
 };
 
 const getAvailableAssets = async () => {
-    const data = await fmpApiFetch(`stock-screener?limit=2000`);
+    const data = await fmpApiFetch(`stock-screener?limit=10000`);
     return data.map((a: any) => ({
         ticker: a.symbol,
         name: a.companyName,

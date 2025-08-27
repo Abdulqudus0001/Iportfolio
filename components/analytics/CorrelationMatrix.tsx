@@ -56,10 +56,14 @@ const CorrelationMatrix: React.FC<CorrelationMatrixProps> = ({ assets, currency 
 
   return (
     <div className="space-y-4">
-        {source === 'static' &&
+        {source !== 'live' &&
             <WarningBanner 
-                source="static"
-                message="Correlations are calculated using static demo data."
+                source={source}
+                message={
+                    source === 'static'
+                    ? "Correlations are calculated using static demo data due to busy live data connections."
+                    : "Correlations are calculated using recently cached data."
+                }
             />
         }
         <div className="overflow-x-auto">

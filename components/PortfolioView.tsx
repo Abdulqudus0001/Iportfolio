@@ -556,7 +556,11 @@ const PortfolioView: React.FC<PortfolioViewProps> = ({ setCurrentView }) => {
                              {analysisSource !== 'live' && 
                                 <WarningBanner 
                                     source={analysisSource}
-                                    message="The connection to live market data is temporarily busy. This analysis was performed using a saved snapshot of data."
+                                    message={
+                                        analysisSource === 'static'
+                                        ? "The connection to live market data is temporarily busy. This analysis was performed using a saved snapshot for demonstration."
+                                        : "This analysis was performed using recently cached data. Run the analysis again for the latest live data."
+                                    }
                                 />
                             }
                              <div className="flex justify-end gap-2 mb-4">

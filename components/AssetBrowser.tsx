@@ -337,17 +337,21 @@ const AssetBrowser: React.FC<AssetBrowserProps> = ({ openAiChat }) => {
                     </div>
                      <div className="text-right">
                          <p className="text-2xl font-bold">{assetData?.summary ? `$${assetData.summary.close.toFixed(2)}` : '...'}</p>
-                         <p className={`text-xs font-semibold ${dataStatus === 'static' ? 'text-yellow-500' : 'text-green-500'}`}>
-                            {dataStatus === 'static' ? 'Delayed Data' : 'Real-time Data'}
+                         <p className={`text-xs font-semibold ${dataStatus === 'live' ? 'text-green-500' : 'text-yellow-500'}`}>
+                            {dataStatus === 'live' ? 'Live Market Price' : "Today's Closing Price"}
                          </p>
                      </div>
                 </div>
             </Card>
 
-            {dataStatus === 'static' && 
+            {dataStatus !== 'live' && 
                 <WarningBanner 
-                    source="static"
-                    message="The connection to live market data is temporarily busy. You are viewing a saved snapshot of data. Live prices will be available again shortly."
+                    source={dataStatus}
+                    message={
+                        dataStatus === 'static' 
+                        ? "The connection to live market data is temporarily busy. You are viewing a saved snapshot of data for demonstration."
+                        : "You are viewing recently cached data. Live data will be fetched on your next request after a short interval."
+                    }
                 />
             }
 
