@@ -163,9 +163,6 @@ const PortfolioView: React.FC<PortfolioViewProps> = ({ setCurrentView }) => {
         }
     };
 
-    // FIX: Corrected a type mismatch where a string from the select input was
-    // assigned to a state expecting the `OptimizationModel` enum. This ensures
-    // that only valid enum values are set.
     const handleOptimizationModelChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
         const modelValue = e.target.value;
         const enumKey = Object.keys(OptimizationModel).find(key => OptimizationModel[key as keyof typeof OptimizationModel] === modelValue);
@@ -465,333 +462,219 @@ const PortfolioView: React.FC<PortfolioViewProps> = ({ setCurrentView }) => {
                                      <input
                                          type="number"
                                          step="0.1"
-                                         value={customWeights[asset.ticker]?.toFixed(1) || ''}
-                                         onChange={e => handleCustomWeightChange(asset.ticker, parseFloat(e.target.value) || 0)}
-                                         className="w-16 p-1 border border-gray-300 rounded-md text-right ml-2 dark:bg-dark-bg dark:border-gray-600"
-                                     />%
+                                         value={customWeights[asset.ticker] !== undefined ? customWeights[asset.ticker] : ''}
+                                         onChange={(e) => handleCustomWeightChange(asset.ticker, parseFloat(e.target.value) || 0)}
+                                         className="w-20 ml-2 p-1 text-xs text-right border rounded dark:bg-dark-bg dark:border-gray-500"
+                                         placeholder="Weight %"
+                                     />
                                  </div>
-                                 <Button onClick={() => handleRemoveAsset(asset.ticker)} variant="danger" className="px-2 py-1 text-xs">X</Button>
+                                 <Button onClick={() => handleRemoveAsset(asset.ticker)} variant="danger" className="px-1.5 py-0.5 text-xs">X</Button>
                              </div>
-                         )) : <p className="text-sm text-gray-500 text-center pt-4">Add assets or import a CSV.</p>}
+                         )) : <p className="text-sm text-center text-gray-500 py-16">Add assets to get started.</p>}
                      </div>
                  </div>
              </div>
-              <div className="flex space-x-2">
-                  <Button onClick={normalizeWeights} className="w-full" variant="secondary" disabled={isLoading}>Normalize Weights</Button>
-                 <Button onClick={handleCalculateCustomMetrics} className="w-full" disabled={isLoading || selectedAssets.length === 0}>Calculate Metrics</Button>
-             </div>
-        </div>
-     );
-
-    
-    return (
-        <div className="space-y-6">
-             {isWizardOpen && <GoalSettingWizard onClose={() => setIsWizardOpen(false)} onComplete={handleWizardComplete} />}
-             {isDisclaimerModalOpen && <DisclaimerModal onAccept={handleAcceptDisclaimer} onClose={() => setIsDisclaimerModalOpen(false)} />}
-
-             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <Card className="lg:col-span-2" title="Portfolio Builder">
-                    {tier === UserTier.Basic && (
-                         <div className="p-4 mb-4 bg-blue-50 border border-blue-200 rounded-lg flex items-center justify-between dark:bg-blue-900/50 dark:border-blue-700">
-                            <div>
-                               <h4 className="font-semibold text-brand-primary">New to Investing?</h4>
-                               <p className="text-sm text-blue-800 dark:text-blue-200">Use our guided wizard to find a strategy that fits your goals.</p>
-                            </div>
-                            <Button onClick={() => setIsWizardOpen(true)}>Start Wizard</Button>
-                        </div>
-                    )}
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-                         <div>
-                            <label htmlFor="template" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Portfolio Mode</label>
-                            <select
-                                id="template"
-                                value={template}
-                                onChange={e => handleTemplateChange(e.target.value)}
-                                className="w-full p-2 border border-gray-300 rounded-md dark:bg-dark-card dark:border-gray-600"
-                            >
-                               {Object.values(PortfolioTemplate).map(t => {
-                                    const isBasicLocked = tier === UserTier.Basic && t !== PortfolioTemplate.Balanced && t !== PortfolioTemplate.Custom;
-                                    const isProLocked = tier === UserTier.Professional && (t === PortfolioTemplate.Custom && optimizationModel === OptimizationModel.BlackLitterman);
-                                    const isDisabled = isBasicLocked || isProLocked;
-
-                                    let label: string;
-                                    if (t === PortfolioTemplate.Custom) {
-                                        label = "Custom Portfolio (Manual Entry)";
-                                    } else {
-                                        label = `Strategy Template: ${t}`;
-                                    }
-                                    if (isBasicLocked) label += ' (Pro+)';
-                                    if (isProLocked) label += ' (Advanced)';
-
-                                    return <option key={t} value={t} disabled={isDisabled}>{label}</option>
-                                })}
-                            </select>
-                         </div>
-                         <div>
-                            <label htmlFor="optimization-model" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Optimization Model</label>
-                            <select
-                                id="optimization-model"
-                                value={optimizationModel}
-                                onChange={handleOptimizationModelChange}
-                                className="w-full p-2 border border-gray-300 rounded-md dark:bg-dark-card dark:border-gray-600"
-                                disabled={template === PortfolioTemplate.Custom && optimizationModel !== OptimizationModel.BlackLitterman}
-                            >
-                                {Object.values(OptimizationModel).map(m => {
-                                    const isAdvancedOnly = m === OptimizationModel.MinimizeVolatility || m === OptimizationModel.RiskParity || m === OptimizationModel.BlackLitterman;
-                                    const isDisabled = isAdvancedOnly && !isAdvanced;
-                                    let label = m;
-                                    if (isDisabled) label += ' (Advanced)';
-                                    return <option key={m} value={m}>{label}</option>
-                                })}
-                            </select>
-                         </div>
-                         <div>
-                            <label htmlFor="currency" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Portfolio Currency</label>
-                            <select
-                                id="currency"
-                                value={currency}
-                                onChange={e => setCurrency(e.target.value as Currency)}
-                                className="w-full p-2 border border-gray-300 rounded-md dark:bg-dark-card dark:border-gray-600"
-                            >
-                                {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
-                            </select>
-                         </div>
-                    </div>
-                     {template === PortfolioTemplate.Custom || optimizationModel === OptimizationModel.BlackLitterman ? (
-                        <>
-                            {renderCustomPortfolioBuilder()}
-                            {optimizationModel === OptimizationModel.BlackLitterman && isAdvanced &&
-                                <BlackLittermanViewsUI views={blackLittermanViews} setViews={setBlackLittermanViews} availableAssets={selectedAssets} />
-                            }
-                        </>
-                     ) : (
-                         isAdvanced ? (
-                            <Card title="Advanced Constraints" className="bg-gray-50 shadow-inner dark:bg-dark-bg">
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Max Asset Weight (%)</label>
-                                        <input 
-                                            type="number"
-                                            placeholder="e.g., 10"
-                                            onChange={e => handleConstraintChange('maxAssetWeight', e.target.value)}
-                                            className="w-full mt-1 p-2 border border-gray-300 rounded-md dark:bg-dark-card dark:border-gray-600"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Max Sector Weight (%)</label>
-                                        <input 
-                                            type="number"
-                                            placeholder="e.g., 30"
-                                            onChange={e => handleConstraintChange('maxSectorWeight', e.target.value)}
-                                            className="w-full mt-1 p-2 border border-gray-300 rounded-md dark:bg-dark-card dark:border-gray-600"
-                                        />
-                                    </div>
-                                </div>
-                            </Card>
-                         ) : (
-                            <div className="text-center p-8 border-dashed border-2 rounded-lg">
-                                <h3 className="text-lg font-semibold text-brand-secondary">Ready to Generate a Portfolio?</h3>
-                                <p className="text-gray-600 mt-2 mb-4 dark:text-gray-300">
-                                   Based on your selected '{template}' strategy, we will select a basket of assets and find the optimal allocation for you.
-                                </p>
-                           </div>
-                         )
-                     )}
-                    {tier === UserTier.Basic && template !== PortfolioTemplate.Custom && <p className="text-sm text-yellow-700 bg-yellow-50 p-2 rounded-md mt-4 dark:bg-yellow-900/50 dark:text-yellow-300">Upgrade to Professional to unlock more portfolio strategies like ESG, Aggressive, and Shariah-compliant.</p>}
-                </Card>
-                
-                <Card title="Actions">
-                    <div className="space-y-4">
-                        <Button onClick={() => runAnalysis('optimize')} disabled={isLoading || (template === PortfolioTemplate.Custom && optimizationModel !== OptimizationModel.BlackLitterman)} className="w-full">
-                           Generate & Optimize
-                        </Button>
-                        <Button onClick={() => runAnalysis('mcmc')} disabled={!isAdvanced || isLoading || (template === PortfolioTemplate.Custom && optimizationModel !== OptimizationModel.BlackLitterman)} className="w-full">
-                            Run Comprehensive Analysis
-                        </Button>
-                        <div className="text-center">
-                            {template === PortfolioTemplate.Custom && optimizationModel !== OptimizationModel.BlackLitterman && <p className="text-xs text-gray-500">Use "Calculate Metrics" in the builder above.</p>}
-                            {!isAdvanced && template !== PortfolioTemplate.Custom && <p className="text-xs text-gray-500">Upgrade to Advanced for more models, constraints, and full MCMC simulations.</p>}
-                            <p className="text-xs text-gray-400 dark:text-gray-500 text-center leading-tight mt-2">
-                                Note: Portfolio analysis uses live market data and may be subject to API limits on free plans.
-                            </p>
-                        </div>
-                    </div>
-                </Card>
+              <div className="flex justify-end gap-2">
+                <Button variant="secondary" onClick={normalizeWeights}>Normalize Weights</Button>
+                <Button onClick={handleCalculateCustomMetrics} disabled={selectedAssets.length < 1}>Calculate Metrics</Button>
             </div>
-            
-            <AdBanner type={tier === UserTier.Basic ? "banner" : "inline"} />
-            
-            {isLoading && <Card><AnalysisLoader /></Card>}
-
-            {error && (
-                <Card>
-                    <WarningBanner source="static" message={error} />
-                </Card>
-            )}
-            
-            {optimizationResult && (
-                <>
-                {analysisSource !== 'live' &&
-                    <WarningBanner 
-                        source={analysisSource}
-                        message={analysisSource === 'cache' ? "This analysis was run using recently cached market data as live data was unavailable. Results are recent but may not be real-time." : "The connection to live market data failed, so this analysis was run using a saved data snapshot. The results are for illustrative purposes only."}
-                    />
-                }
-                <Card title="Portfolio Health Check">
-                    <PortfolioHealthCheck portfolio={optimizationResult} />
-                </Card>
-                <Card title="Analysis Output">
-                    <div className="border-b border-gray-200 dark:border-gray-700 mb-4">
-                        <nav className="-mb-px flex space-x-6">
-                            <button onClick={() => setActiveTab('results')} className={`py-2 px-1 border-b-2 font-medium text-sm ${activeTab === 'results' ? 'border-brand-primary text-brand-primary' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}>
-                                Results
-                            </button>
-                             <button onClick={() => setActiveTab('backtest')} disabled={tier === UserTier.Basic} className={`py-2 px-1 border-b-2 font-medium text-sm ${activeTab === 'backtest' ? 'border-brand-primary text-brand-primary' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'} disabled:opacity-50`}>
-                                Backtest {tier === UserTier.Basic && '(Pro+)'}
-                            </button>
-                        </nav>
-                    </div>
-                    
-                    {activeTab === 'results' && (
-                        <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
-                            <div className="md:col-span-2">
-                                <h3 className="text-lg font-semibold mb-2">Portfolio Allocation ({optimizationResult.currency})</h3>
-                                <ul className="space-y-2 max-h-80 overflow-y-auto">
-                                    {optimizationResult.weights.sort((a,b)=>b.weight-a.weight).map(asset => (
-                                        <li key={asset.ticker} className="flex justify-between items-center text-sm">
-                                            <span className="truncate pr-2">{asset.ticker} - {asset.name}</span>
-                                            <span className="font-bold bg-blue-100 text-blue-800 px-2 py-1 rounded-full whitespace-nowrap dark:bg-blue-900 dark:text-blue-200">{(asset.weight * 100).toFixed(2)}%</span>
-                                        </li>
-                                    ))}
-                                </ul>
-                                <div className="mt-4 pt-4 border-t dark:border-gray-700">
-                                    <h4 className="font-semibold text-lg">Portfolio Metrics</h4>
-                                    <div className="space-y-1 text-sm">
-                                        <div className="flex justify-between items-center">
-                                            <div className="flex items-center gap-1.5 text-light-text-secondary dark:text-dark-text-secondary">
-                                                <span>Historically-Modeled Annual Return</span>
-                                                <Tooltip text="The anticipated annualized return on the portfolio, based on the historical average returns of its assets. Past performance is not indicative of future results.">
-                                                    <InfoIcon />
-                                                </Tooltip>
-                                            </div>
-                                            <span className="font-semibold">{(optimizationResult.returns * 100).toFixed(2)}%</span>
-                                        </div>
-                                        <div className="flex justify-between items-center">
-                                            <div className="flex items-center gap-1.5 text-light-text-secondary dark:text-dark-text-secondary">
-                                                <span>Historical Volatility</span>
-                                                <Tooltip text="Measures the total risk or price fluctuation of the portfolio based on historical data. Higher values indicate greater risk.">
-                                                    <InfoIcon />
-                                                </Tooltip>
-                                            </div>
-                                            <span className="font-semibold">{(optimizationResult.volatility * 100).toFixed(2)}%</span>
-                                        </div>
-                                        <div className="flex justify-between items-center">
-                                            <div className="flex items-center gap-1.5 text-light-text-secondary dark:text-dark-text-secondary">
-                                                <span>Sharpe Ratio</span>
-                                                <Tooltip text="Measures historical risk-adjusted return (return per unit of risk). A higher value is better.">
-                                                    <InfoIcon />
-                                                </Tooltip>
-                                            </div>
-                                            <span className="font-bold text-green-600 text-base">{optimizationResult.sharpeRatio.toFixed(3)}</span>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div className="grid grid-cols-2 gap-2 mt-4">
-                                    <Tooltip text={!user ? "Sign in to save portfolios" : (tier === UserTier.Basic && !basicCanSave ? "Upgrade to save more than one portfolio." : "Save this portfolio for later access.")}>
-                                        <div className="w-full">
-                                            <Button onClick={handleOpenSaveModal} className="w-full" variant="secondary" disabled={!!user && tier === UserTier.Basic && !basicCanSave}>Save</Button>
-                                        </div>
-                                    </Tooltip>
-                                    <Tooltip text={!currentPortfolio ? "Save your portfolio first to enable sharing" : "Generate a shareable link"}>
-                                        <div className="w-full">
-                                            <Button onClick={handleSharePortfolio} disabled={!currentPortfolio} className="w-full" variant="secondary">Share</Button>
-                                        </div>
-                                    </Tooltip>
-                                    {tier !== UserTier.Basic && <Button onClick={handleDownloadCSV} className="w-full col-span-2">Download CSV</Button>}
-                                </div>
-                            </div>
-                            {mcmcResult && (
-                                <div className="md:col-span-3">
-                                    <h3 className="text-lg font-semibold mb-2">Efficient Frontier</h3>
-                                    <EfficientFrontierChart simulations={mcmcResult.simulations} optimalPoint={optimizationResult} />
-                                </div>
-                            )}
-                        </div>
-                    )}
-                    {activeTab === 'backtest' && <BacktestingView portfolio={optimizationResult} />}
-                </Card>
-                </>
-            )}
-            
-            <Modal isOpen={isSaveModalOpen} onClose={() => setIsSaveModalOpen(false)} title="Save Portfolio">
-                <div className="space-y-4">
-                    <p className="text-sm text-gray-600 dark:text-gray-400">Enter a name for your new portfolio to save it for later access.</p>
-                    <div>
-                        <label htmlFor="portfolio-name" className="block text-sm font-medium text-gray-700 dark:text-gray-300">Portfolio Name</label>
-                        <input
-                            type="text"
-                            id="portfolio-name"
-                            value={portfolioName}
-                            onChange={(e) => setPortfolioName(e.target.value)}
-                            className="w-full mt-1 p-2 border border-gray-300 rounded-md dark:bg-dark-bg dark:border-gray-600"
-                            placeholder="e.g., My Growth Portfolio"
-                        />
-                    </div>
-                    <div>
-                        <label htmlFor="portfolio-notes" className="block text-sm font-medium text-gray-700 dark:text-gray-300">Notes / Journal</label>
-                        <textarea
-                            id="portfolio-notes"
-                            value={portfolioNotes}
-                            onChange={(e) => setPortfolioNotes(e.target.value)}
-                            rows={3}
-                            className="w-full mt-1 p-2 border border-gray-300 rounded-md dark:bg-dark-bg dark:border-gray-600"
-                            placeholder="e.g., Investment thesis, reasons for this allocation..."
-                        />
-                    </div>
-                    <div className="flex justify-end space-x-2">
-                        <Button variant="secondary" onClick={() => setIsSaveModalOpen(false)}>Cancel</Button>
-                        <Button onClick={handleSavePortfolio} disabled={!portfolioName.trim()}>Save</Button>
-                    </div>
-                </div>
-            </Modal>
-            <Modal isOpen={isShareModalOpen} onClose={() => setIsShareModalOpen(false)} title="Share Portfolio">
-                <div className="space-y-4">
-                    <p className="text-sm text-gray-600 dark:text-gray-400">
-                        Share this private link to give a read-only view of your portfolio.
-                    </p>
-                    <input
-                        type="text"
-                        readOnly
-                        value={shareLink}
-                        className="w-full p-2 border rounded-md bg-gray-100 dark:bg-dark-bg"
-                        onFocus={(e) => e.target.select()}
-                    />
-                    <Button onClick={() => navigator.clipboard.writeText(shareLink)} className="w-full">
-                        Copy Link
-                    </Button>
-                </div>
-            </Modal>
-            <Modal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} title="Create Account to Save">
-                <div className="text-center space-y-4 p-4">
-                    <p className="text-light-text-secondary dark:text-dark-text-secondary">
-                        Saving portfolios is a free feature, but you need an account to use it.
-                    </p>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">
-                        An account lets you access your saved portfolios from any device.
-                    </p>
-                    <Button 
-                        onClick={() => {
-                            setIsAuthModalOpen(false);
-                            setCurrentView('auth');
-                        }} 
-                        className="w-full"
-                    >
-                        Sign Up or Sign In
-                    </Button>
-                </div>
-            </Modal>
         </div>
     );
+
+    return (
+        <>
+            {isDisclaimerModalOpen && <DisclaimerModal onAccept={handleAcceptDisclaimer} onClose={() => setIsDisclaimerModalOpen(false)} />}
+            <div className="grid grid-cols-1 gap-8">
+                <div className="space-y-6">
+                    <Card title="Portfolio Builder">
+                        <div className="space-y-4">
+                             <div>
+                                <label className="block text-sm font-medium">Portfolio Mode</label>
+                                 <select value={template} onChange={(e) => handleTemplateChange(e.target.value)} className="w-full mt-1 p-2 border rounded-md dark:bg-dark-bg dark:border-gray-600">
+                                    {Object.values(PortfolioTemplate).map(t => <option key={t} value={t}>{t}</option>)}
+                                </select>
+                             </div>
+                             {tier === UserTier.Basic && template !== PortfolioTemplate.Custom && template !== PortfolioTemplate.Balanced &&
+                                <div className="p-2 bg-yellow-100 text-yellow-800 text-sm rounded-md">
+                                    This template is a Professional feature. Your analysis will run on the Balanced template.
+                                </div>
+                             }
+                             <div className="flex items-center gap-2">
+                                <h3 className="text-lg font-semibold">Goal Setting</h3>
+                                <Button variant="secondary" className="text-xs py-1 px-2" onClick={() => setIsWizardOpen(true)}>Start Wizard</Button>
+                             </div>
+                             
+                             {template === PortfolioTemplate.Custom ? renderCustomPortfolioBuilder() : (
+                                <>
+                                 <div>
+                                    <label className="block text-sm font-medium">Optimization Model</label>
+                                     <select value={optimizationModel} onChange={handleOptimizationModelChange} className="w-full mt-1 p-2 border rounded-md dark:bg-dark-bg dark:border-gray-600">
+                                        {Object.values(OptimizationModel).map(m => (
+                                            <option key={m} value={m} disabled={m === OptimizationModel.BlackLitterman && !isAdvanced}>
+                                                {m}{m === OptimizationModel.BlackLitterman && !isAdvanced && ' (Advanced)'}
+                                            </option>
+                                        ))}
+                                    </select>
+                                 </div>
+                                 {optimizationModel === OptimizationModel.BlackLitterman && isAdvanced && <BlackLittermanViewsUI views={blackLittermanViews} setViews={setBlackLittermanViews} availableAssets={selectedAssets} />}
+                                 {isProfessionalOrHigher && (
+                                    <div className="space-y-2 pt-2 border-t dark:border-gray-600">
+                                        <h4 className="font-semibold text-gray-700 dark:text-gray-300">Constraints (Optional)</h4>
+                                         <div className="grid grid-cols-2 gap-2">
+                                            <div>
+                                                <label className="text-xs">Max Asset Weight (%)</label>
+                                                <input type="number" onChange={(e) => handleConstraintChange('maxAssetWeight', e.target.value)} className="w-full p-1 border rounded text-sm dark:bg-dark-bg dark:border-gray-500" placeholder="e.g., 20" />
+                                            </div>
+                                             <div>
+                                                <label className="text-xs">Max Sector Weight (%)</label>
+                                                <input type="number" onChange={(e) => handleConstraintChange('maxSectorWeight', e.target.value)} className="w-full p-1 border rounded text-sm dark:bg-dark-bg dark:border-gray-500" placeholder="e.g., 35" />
+                                            </div>
+                                         </div>
+                                    </div>
+                                 )}
+                                </>
+                             )}
+                        </div>
+                    </Card>
+
+                    {template !== PortfolioTemplate.Custom && (
+                        <Card title="Actions">
+                            <div className="space-y-3">
+                                 <Button onClick={() => runAnalysis('optimize')} disabled={isLoading} className="w-full">
+                                    Quick Optimize
+                                </Button>
+                                 <Button onClick={() => runAnalysis('mcmc')} disabled={isLoading || tier === UserTier.Basic} className="w-full" variant="secondary">
+                                    Comprehensive Analysis {tier === UserTier.Basic && '(Pro+)'}
+                                </Button>
+                            </div>
+                        </Card>
+                    )}
+                </div>
+                <div className="space-y-6">
+                    {isLoading && <AnalysisLoader />}
+                    {error && <Card><p className="text-red-500 text-center py-4">{error}</p></Card>}
+                    {optimizationResult ? (
+                        <Card title="Analysis Output">
+                             {analysisSource !== 'live' && 
+                                <WarningBanner 
+                                    source={analysisSource}
+                                    message="The connection to live market data is temporarily busy. This analysis was performed using a saved snapshot of data."
+                                />
+                            }
+                             <div className="flex justify-end gap-2 mb-4">
+                                <Button variant="secondary" onClick={handleDownloadCSV} className="text-xs">Download CSV</Button>
+                                <Button variant="secondary" onClick={handleSharePortfolio} className="text-xs" disabled={!currentPortfolio}>Share</Button>
+                                <Button onClick={handleOpenSaveModal} className="text-xs" disabled={tier === UserTier.Basic && !basicCanSave}>
+                                    {tier === UserTier.Basic && !basicCanSave ? 'Limit Reached' : 'Save'}
+                                </Button>
+                            </div>
+                            <div className="border-b border-gray-200 dark:border-gray-700 mb-4">
+                                <nav className="-mb-px flex space-x-6">
+                                    <button onClick={() => setActiveTab('results')} className={`py-2 px-1 border-b-2 font-medium text-sm ${activeTab === 'results' ? 'border-brand-primary text-brand-primary' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}>
+                                        Results
+                                    </button>
+                                     <button onClick={() => setActiveTab('backtest')} className={`py-2 px-1 border-b-2 font-medium text-sm ${activeTab === 'backtest' ? 'border-brand-primary text-brand-primary' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}>
+                                        Backtest {tier === UserTier.Basic && '(Pro+)'}
+                                    </button>
+                                </nav>
+                            </div>
+
+                            {activeTab === 'results' ? (
+                                <div className="space-y-6">
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+                                        <Metric label="Expected Return" value={`${(optimizationResult.returns * 100).toFixed(2)}%`} />
+                                        <Metric label="Volatility (Risk)" value={`${(optimizationResult.volatility * 100).toFixed(2)}%`} />
+                                        <Metric label="Sharpe Ratio" value={optimizationResult.sharpeRatio.toFixed(3)} />
+                                        <Metric label="Currency" value={optimizationResult.currency || 'USD'} />
+                                    </div>
+
+                                    <PortfolioHealthCheck portfolio={optimizationResult} />
+                                    
+                                    <h4 className="text-lg font-semibold text-brand-primary pt-4 border-t dark:border-gray-700">Optimal Asset Allocation</h4>
+                                    <div className="overflow-x-auto">
+                                         <table className="min-w-full text-sm">
+                                            <thead className="bg-gray-50 dark:bg-gray-800">
+                                                <tr>
+                                                    <th className="px-4 py-2 text-left">Ticker</th>
+                                                    <th className="px-4 py-2 text-left">Name</th>
+                                                    <th className="px-4 py-2 text-right">Weight</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                                                {optimizationResult.weights.sort((a,b) => b.weight - a.weight).map(asset => (
+                                                    <tr key={asset.ticker}>
+                                                        <td className="px-4 py-2 font-medium">{asset.ticker}</td>
+                                                        <td className="px-4 py-2">{asset.name}</td>
+                                                        <td className="px-4 py-2 text-right font-semibold">{(asset.weight * 100).toFixed(2)}%</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+
+                                    {mcmcResult && mcmcResult.simulations.length > 0 && (
+                                        <>
+                                            <h4 className="text-lg font-semibold text-brand-primary pt-4 border-t dark:border-gray-700">Efficient Frontier</h4>
+                                            <EfficientFrontierChart simulations={mcmcResult.simulations} optimalPoint={optimizationResult} />
+                                        </>
+                                    )}
+
+                                </div>
+                            ) : (
+                                isProfessionalOrHigher ? 
+                                <BacktestingView portfolio={optimizationResult} /> :
+                                <div className="text-center p-8">
+                                    <h3 className="text-lg font-semibold text-brand-secondary">Feature Locked</h3>
+                                    <p className="text-gray-600 dark:text-gray-400 mt-2">Backtesting is available on the Professional tier and higher.</p>
+                                </div>
+                            )}
+
+                        </Card>
+                    ) : (
+                        <Card>
+                            <div className="text-center py-24">
+                                <h2 className="text-2xl font-semibold text-brand-primary mb-4">Ready to Optimize?</h2>
+                                <p className="text-light-text-secondary dark:text-dark-text-secondary max-w-md mx-auto">
+                                    Your analysis results will appear here after you run an optimization from the builder on the left.
+                                </p>
+                            </div>
+                        </Card>
+                    )}
+                    <AdBanner type="inline" />
+                </div>
+            </div>
+
+            <Modal isOpen={isSaveModalOpen} onClose={() => setIsSaveModalOpen(false)} title="Save Portfolio">
+                <div className="space-y-4">
+                    <input type="text" value={portfolioName} onChange={e => setPortfolioName(e.target.value)} placeholder="Enter portfolio name..." className="w-full p-2 border rounded" required />
+                    <textarea value={portfolioNotes} onChange={e => setPortfolioNotes(e.target.value)} placeholder="Add optional notes..." className="w-full p-2 border rounded" rows={3}></textarea>
+                    <Button onClick={handleSavePortfolio} className="w-full">Save</Button>
+                </div>
+            </Modal>
+
+            <Modal isOpen={isShareModalOpen} onClose={() => setIsShareModalOpen(false)} title="Share Portfolio">
+                <p className="text-sm text-gray-500 mb-2">Anyone with this link can view a snapshot of your portfolio.</p>
+                <input type="text" readOnly value={shareLink} className="w-full p-2 border rounded bg-gray-100 dark:bg-gray-800" />
+                 <Button onClick={() => navigator.clipboard.writeText(shareLink)} className="w-full mt-2">Copy Link</Button>
+            </Modal>
+            
+            <Modal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} title="Authentication Required">
+                <div className="text-center">
+                    <p className="mb-4">Please sign in or create an account to save and share your portfolios.</p>
+                    <Button onClick={() => { setIsAuthModalOpen(false); setCurrentView('auth'); }}>Go to Sign In</Button>
+                </div>
+            </Modal>
+
+            {isWizardOpen && <GoalSettingWizard onClose={() => setIsWizardOpen(false)} onComplete={handleWizardComplete} />}
+        </>
+    );
 };
+
+const Metric: React.FC<{ label: string; value: string | number }> = ({ label, value }) => (
+    <div className="p-2 bg-gray-50 dark:bg-gray-800 rounded-lg">
+        <h4 className="text-xs text-gray-500 dark:text-gray-400">{label}</h4>
+        <p className="text-lg font-bold text-brand-secondary">{value}</p>
+    </div>
+);
 
 export default PortfolioView;
