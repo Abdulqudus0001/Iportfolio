@@ -1,10 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Asset, CorrelationData, Currency } from '../../types';
+import { Asset, CorrelationData, Currency, DataSource } from '../../types';
 import { portfolioService } from '../../services/portfolioService';
 import Loader from '../ui/Loader';
 import WarningBanner from '../ui/WarningBanner';
-
-type DataSource = 'live' | 'cache' | 'static';
 
 interface CorrelationMatrixProps {
   assets: Asset[];
