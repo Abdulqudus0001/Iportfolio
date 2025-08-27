@@ -115,8 +115,30 @@ serve(async (req: Request) => {
         switch (action) {
             case 'optimize-portfolio': {
                 const { assets, runner, constraints, riskFreeRate } = payload;
-                const histories = await Promise.all(assets.map((a: any) => getAssetPriceHistory(a.ticker)));
-                const result = runOptimization(assets, histories, runner, constraints, riskFreeRate);
+                
+                // Use Promise.allSettled to fetch histories, making it resilient to failures
+                const settledHistories = await Promise.allSettled(
+                    assets.map((a: any) => getAssetPriceHistory(a.ticker))
+                );
+
+                const successfulAssets: any[] = [];
+                const successfulHistories: any[] = [];
+
+                settledHistories.forEach((result, index) => {
+                    if (result.status === 'fulfilled' && result.value && result.value.length > 251) {
+                        successfulAssets.push(assets[index]);
+                        successfulHistories.push(result.value);
+                    } else {
+                        const reason = result.status === 'rejected' ? result.reason.message : 'Insufficient historical data';
+                        console.error(`Failed to fetch or validate history for ${assets[index].ticker}: ${reason}`);
+                    }
+                });
+
+                if (successfulAssets.length < 2) {
+                    throw new Error("Could not retrieve sufficient historical data for optimization. At least two valid assets are required.");
+                }
+
+                const result = runOptimization(successfulAssets, successfulHistories, runner, constraints, riskFreeRate);
                 return new Response(JSON.stringify({ ...result, source: 'live' }), {
                     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
                 });
