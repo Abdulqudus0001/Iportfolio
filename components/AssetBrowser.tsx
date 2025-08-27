@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Asset, FinancialRatio, Financials, PriceSummary, UserTier } from '../types';
+import { Asset, FinancialRatio, Financials, PriceSummary, UserTier, DataSource } from '../types';
 import { marketDataService } from '../services/marketDataService';
 import Card from './ui/Card';
 import Loader from './ui/Loader';
@@ -13,8 +13,6 @@ import Button from './ui/Button';
 import EsgDataView from './analytics/EsgDataView';
 import WarningBanner from './ui/WarningBanner';
 import { useDebounce } from '../hooks/useDebounce';
-
-type DataSource = 'live' | 'cache' | 'static';
 
 const ratioDefinitions: Record<string, string> = {
     'P/E (TTM)': "Price-to-Earnings Ratio. A measure of a company's stock price relative to its earnings per share over the last 12 months. A high P/E could mean the stock is overvalued, or that investors expect high growth rates.",
