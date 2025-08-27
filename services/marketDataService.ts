@@ -1,11 +1,10 @@
-import { FinancialRatio, Financials, PriceDataPoint, PriceSummary, Asset, DividendInfo, EsgData, OptionContract, Currency } from '../types';
+import { FinancialRatio, Financials, PriceDataPoint, PriceSummary, Asset, DividendInfo, EsgData, OptionContract, Currency, DataSource } from '../types';
 import { staticData } from './staticDataService';
 import { financialDataService } from './financialDataService';
 import { cacheService } from './cacheService';
 import { newsApiClient } from './newsApiClient';
 import { supabase } from './supabaseClient';
 
-type DataSource = 'live' | 'cache' | 'static';
 export interface ServiceResponse<T> {
   data: T;
   source: DataSource;
@@ -19,7 +18,7 @@ const invokeGateway = async <T>(payload: object): Promise<ServiceResponse<T>> =>
         if (error) throw error;
         return data;
     } catch (error) {
-        console.error(`Error invoking gateway for payload`, payload, error);
+        console.error(`Error invoking gateway for payload`, payload, error.message || error);
         // Fallback to static data on gateway failure
         const staticFallback = getStaticFallback(payload);
         return { data: staticFallback as T, source: 'static' };
@@ -44,30 +43,36 @@ const formatVolume = (vol: number) => {
 };
 
 export const marketDataService = {
-    // This function still fetches from client as it's a bootstrap list
     getAvailableAssets: async (): Promise<Asset[]> => {
-        const cacheKey = 'available_assets';
-        const cached = cacheService.get<Asset[]>(cacheKey);
-        if (cached) return cached;
-
         try {
-            let assets = await financialDataService.getAvailableAssets();
+            const { data, error } = await supabase.functions.invoke('secure-api-gateway', {
+                body: { action: 'get-available-assets' }
+            });
+
+            if (error) throw error;
+            
+            // The gateway response is { data: Asset[], source: 'live' | 'cache' }
+            const responseData: Asset[] = data.data;
+
+            // Add static cryptos, as the backend only returns equities from FMP
             const cryptoAssets = staticData.cryptos.map((c: any) => ({
                 ticker: c.symbol, name: c.name, country: 'CRYPTO' as const, sector: 'Cryptocurrency', asset_class: 'CRYPTO' as const, price: c.price
             }));
-            assets = [...assets, ...cryptoAssets];
+            const combinedAssets = [...responseData, ...cryptoAssets];
 
             const tickerSet = new Set();
-            const uniqueAssets = assets.filter(asset => {
+            const uniqueAssets = combinedAssets.filter(asset => {
+                if (!asset || !asset.ticker) return false;
                 if (tickerSet.has(asset.ticker)) return false;
                 tickerSet.add(asset.ticker);
                 return true;
             });
-
-            cacheService.set(cacheKey, uniqueAssets);
+            
             return uniqueAssets;
+
         } catch (error) {
-            console.error("Failed to fetch available assets, using static data", error);
+            console.error("Failed to fetch available assets from gateway, using static data", error.message || error);
+            // Fallback logic
             const staticAssets = staticData.stocks.map((s: any) => ({
                 ticker: s.symbol,
                 name: s.companyName,
