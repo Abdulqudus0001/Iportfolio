@@ -32,17 +32,25 @@ export const portfolioService = {
         });
 
         if (error) {
-            // Check if the error is a string and try to parse it as JSON, which the edge function returns
-            let errorMessage = error.message;
-            try {
-                const parsedError = JSON.parse(error.message);
-                if (parsedError.error) {
-                    errorMessage = parsedError.error;
-                }
-            } catch (e) {
-                // Not a JSON error, use original message
-            }
+             // The error object from supabase-js v2 for function errors is a FunctionsError.
+             // It may contain a `context` property with the original Response object.
+             let errorMessage = "An unknown error occurred with the optimization service.";
+             if (error.context && typeof error.context.json === 'function') {
+                 try {
+                     const errorBody = await error.context.json();
+                     errorMessage = errorBody.error || error.message;
+                 } catch (e) {
+                     // Body is not JSON, use default message
+                     errorMessage = error.message;
+                 }
+             } else {
+                 errorMessage = error.message;
+             }
              throw new Error(errorMessage);
+        }
+
+        if (!data) {
+            throw new Error("Optimization service returned no data.");
         }
 
         return data;
