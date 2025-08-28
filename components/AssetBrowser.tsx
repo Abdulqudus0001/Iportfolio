@@ -118,7 +118,9 @@ const AssetBrowser: React.FC<AssetBrowserProps> = ({ openAiChat }) => {
         }
       }).catch(err => {
           console.error(`Failed to fetch data for ${selectedAsset.ticker}`, err);
-          setError(`Sorry, we couldn't load details for ${selectedAsset.ticker}. This can happen if the symbol is incorrect or our connection to live data is busy. Please double-check the ticker or try again in a moment.`);
+          const defaultError = `Sorry, we couldn't load details for ${selectedAsset.ticker}. The data provider might be busy.`;
+          // The error from supabase-js has a `message` property that contains our specific error string.
+          setError(err.message || defaultError);
           setDataStatus('static'); // Assume static on error
       }).finally(() => setIsLoadingDetails(false));
     }
