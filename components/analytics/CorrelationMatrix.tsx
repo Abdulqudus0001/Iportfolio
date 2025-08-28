@@ -18,9 +18,9 @@ const CorrelationMatrix: React.FC<CorrelationMatrixProps> = ({ assets, currency 
     if (assets.length > 1) {
       setLoading(true);
       portfolioService.getCorrelationMatrix(assets, currency)
-        .then(data => {
-          setCorrelationData(data);
-          setSource(data.source);
+        .then(response => {
+          setCorrelationData(response.data);
+          setSource(response.source);
           setLoading(false);
         })
         .catch(err => {

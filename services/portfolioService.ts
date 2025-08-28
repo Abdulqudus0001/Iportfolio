@@ -1,5 +1,7 @@
 import { Asset, OptimizationResult, MCMCResult, PortfolioAsset, PortfolioTemplate, PriceDataPoint, CorrelationData, ContributionData, ConstraintOptions, BacktestResult, Scenario, ScenarioResult, FactorExposures, VaRResult, TaxLossHarvestingResult, OptimizationModel, BlackLittermanView, SavedPortfolio, Currency, DataSource } from '../types';
 import { supabase } from './supabaseClient';
+import { cacheService } from './cacheService';
+import { ServiceResponse } from './marketDataService';
 
 async function invokeApiProxy<T>(command: string, payload?: object): Promise<T> {
     const { data, error } = await supabase.functions.invoke('api-proxy', {
@@ -8,6 +10,9 @@ async function invokeApiProxy<T>(command: string, payload?: object): Promise<T> 
     if (error) {
         console.error(`Error invoking api-proxy for command "${command}":`, error);
         throw error;
+    }
+     if (data.error) {
+        throw new Error(data.error);
     }
     return data;
 }
@@ -22,8 +27,17 @@ export const portfolioService = {
     return invokeApiProxy('runBlackLittermanOptimization', { assets, views, currency });
   },
 
-  getCorrelationMatrix(assets: Asset[], currency: Currency): Promise<CorrelationData & { source: DataSource }> {
-      return invokeApiProxy('getCorrelationMatrix', { assets, currency });
+  // FIX: Refactored to correctly use withCache by passing the data type as T and unwrapping the response in the fetcher.
+  getCorrelationMatrix(assets: Asset[], currency: Currency): Promise<ServiceResponse<CorrelationData>> {
+      const assetKeys = assets.map(a => a.ticker).sort().join(',');
+      const cacheKey = `correlation-matrix-${assetKeys}-${currency}`;
+      const staticFallback: CorrelationData = { assets: [], matrix: [] };
+      
+      return cacheService.withCache<CorrelationData>(
+          cacheKey,
+          async () => (await invokeApiProxy<CorrelationData>('getCorrelationMatrix', { assets, currency })).data,
+          staticFallback
+      );
   },
 
   getRiskReturnContribution(portfolio: OptimizationResult): Promise<ContributionData[]> {
