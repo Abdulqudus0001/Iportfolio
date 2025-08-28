@@ -23,14 +23,21 @@ type DataSource = 'live' | 'cache' | 'static';
 const FMP_API_KEY = Deno.env.get("FMP_API_KEY");
 const NEWS_API_KEY = Deno.env.get("NEWS_API_KEY");
 const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
-const FMP_BASE_URL = 'https://financialmodelingprep.com/api/v3';
+const ALPHA_VANTAGE_API_KEY = Deno.env.get("ALPHA_VANTAGE_API_KEY");
 
-const apiFetch = async (url: string) => {
+const FMP_BASE_URL = 'https://financialmodelingprep.com/api/v3';
+const ALPHA_VANTAGE_URL = 'https://www.alphavantage.co/query';
+
+
+const apiFetch = async (url: string, isCsv = false) => {
     const res = await fetch(url);
     if (!res.ok) {
         const error = new Error(`API error: ${res.status} ${res.statusText} on URL: ${url}`);
         (error as any).status = res.status;
         throw error;
+    }
+    if (isCsv) {
+        return res.text();
     }
     return res.json();
 }
@@ -53,111 +60,114 @@ const formatLargeNumber = (num: number) => {
 
 // --- STATIC DATA (for fallbacks) ---
 const staticData = {
-    stocks: [
+    assets: [
+        // US Stocks
         { ticker: 'AAPL', name: 'Apple Inc.', country: 'US', sector: 'Technology', asset_class: 'EQUITY', is_esg: true, price: 172.5 },
         { ticker: 'MSFT', name: 'Microsoft Corporation', country: 'US', sector: 'Technology', asset_class: 'EQUITY', is_esg: true, price: 305.2 },
         { ticker: 'GOOGL', name: 'Alphabet Inc.', country: 'US', sector: 'Technology', asset_class: 'EQUITY', is_esg: false, price: 136.8 },
         { ticker: 'AMZN', name: 'Amazon.com, Inc.', country: 'US', sector: 'Consumer Cyclical', asset_class: 'EQUITY', is_esg: false, price: 130.5 },
+        { ticker: 'NVDA', name: 'NVIDIA Corporation', country: 'US', sector: 'Technology', asset_class: 'EQUITY', is_esg: false, price: 450.0 },
+        { ticker: 'TSLA', name: 'Tesla, Inc.', country: 'US', sector: 'Consumer Cyclical', asset_class: 'EQUITY', is_esg: false, price: 250.0 },
         { ticker: 'JPM', name: 'JPMorgan Chase & Co.', country: 'US', sector: 'Financial Services', asset_class: 'EQUITY', is_esg: false, price: 142.3 },
         { ticker: 'JNJ', name: 'Johnson & Johnson', country: 'US', sector: 'Healthcare', asset_class: 'EQUITY', is_esg: true, price: 166.1 },
         { ticker: 'V', name: 'Visa Inc.', country: 'US', sector: 'Financial Services', asset_class: 'EQUITY', is_esg: true, price: 238.4 },
         { ticker: 'PG', name: 'Procter & Gamble Company', country: 'US', sector: 'Consumer Defensive', asset_class: 'EQUITY', is_esg: true, price: 151.2 },
-        { ticker: 'TSM', name: 'Taiwan Semiconductor Manufacturing', country: 'US', sector: 'Technology', asset_class: 'EQUITY', is_esg: false, price: 98.6 },
         { ticker: 'XOM', name: 'Exxon Mobil Corporation', country: 'US', sector: 'Energy', asset_class: 'EQUITY', is_esg: false, price: 112.9 },
-        { ticker: 'NEE', name: 'NextEra Energy, Inc.', country: 'US', sector: 'Utilities', asset_class: 'EQUITY', is_esg: true, price: 71.5 },
         { ticker: 'HD', name: 'The Home Depot, Inc.', country: 'US', sector: 'Consumer Cyclical', asset_class: 'EQUITY', is_esg: false, price: 335.7 },
         { ticker: 'MCD', name: "McDonald's Corporation", country: 'US', sector: 'Consumer Cyclical', asset_class: 'EQUITY', is_esg: false, price: 292.1 },
-        { ticker: 'SPY', name: 'SPDR S&P 500 ETF Trust', country: 'US', sector: 'Mixed', asset_class: 'EQUITY', is_esg: false, price: 452.8 },
-        { ticker: 'QQQ', name: 'Invesco QQQ Trust', country: 'US', sector: 'Mixed', asset_class: 'EQUITY', is_esg: false, price: 385.2 },
-        { ticker: 'IEFA', name: 'iShares Core MSCI EAFE ETF', country: 'US', sector: 'Mixed', asset_class: 'EQUITY', is_esg: false, price: 70.1 },
-        { ticker: 'AGG', name: 'iShares Core U.S. Aggregate Bond ETF', country: 'US', sector: 'Mixed', asset_class: 'EQUITY', is_esg: false, price: 98.5 },
-        { ticker: 'GLD', name: 'SPDR Gold Shares', country: 'US', sector: 'Mixed', asset_class: 'EQUITY', is_esg: false, price: 180.2 },
+        // ETFs
+        { ticker: 'SPY', name: 'SPDR S&P 500 ETF Trust', country: 'US', sector: 'Mixed', asset_class: 'BENCHMARK', price: 452.8 },
+        { ticker: 'QQQ', name: 'Invesco QQQ Trust', country: 'US', sector: 'Mixed', asset_class: 'BENCHMARK', price: 385.2 },
+        { ticker: 'AGG', name: 'iShares Core U.S. Aggregate Bond ETF', country: 'US', sector: 'Mixed', asset_class: 'BENCHMARK', price: 98.5 },
+        // International
+        { ticker: 'TSM', name: 'Taiwan Semiconductor', country: 'US', sector: 'Technology', asset_class: 'EQUITY', is_esg: false, price: 98.6 },
         { ticker: '2222.SR', name: 'Saudi Aramco', country: 'SAUDI ARABIA', sector: 'Energy', asset_class: 'EQUITY', is_esg: false, price: 35.50 },
         { ticker: 'QNBK.QA', name: 'Qatar National Bank', country: 'QATAR', sector: 'Financial Services', asset_class: 'EQUITY', is_esg: false, price: 17.20 },
         { ticker: 'DANGCEM.LG', name: 'Dangote Cement', country: 'NIGERIA', sector: 'Basic Materials', asset_class: 'EQUITY', is_esg: false, price: 280.00 },
         { ticker: 'HSBC.L', name: 'HSBC Holdings plc', country: 'UK', sector: 'Financial Services', asset_class: 'EQUITY', is_esg: true, price: 6.50 },
-        { ticker: 'BATS.L', name: 'British American Tobacco p.l.c.', country: 'UK', sector: 'Consumer Defensive', asset_class: 'EQUITY', is_esg: false, price: 25.00 },
-        { ticker: '1120.SR', name: 'Al Rajhi Bank', country: 'SAUDI ARABIA', sector: 'Financial Services', asset_class: 'EQUITY', is_esg: false, price: 80.00 },
-    ],
-    cryptos: [
+        // Crypto
         { ticker: 'BTC', name: 'Bitcoin', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: 43500 },
         { ticker: 'ETH', name: 'Ethereum', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: 2300 },
         { ticker: 'SOL', name: 'Solana', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: 65.5 },
         { ticker: 'XRP', name: 'XRP', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: 0.62 },
         { ticker: 'DOGE', name: 'Dogecoin', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: 0.08 },
         { ticker: 'ADA', name: 'Cardano', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: 0.55 },
-        { ticker: 'ALGO', name: 'Algorand', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: 0.18 },
-        { ticker: 'BONK', name: 'Bonk', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: 0.000014 },
-        { ticker: 'APT', name: 'Aptos', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: 9.50 },
-        { ticker: 'ASTR', name: 'Astar', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: 0.10 },
-        { ticker: 'COMP', name: 'Compound', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: 58.00 },
-        { ticker: 'BAT', name: 'Basic Attention Token', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: 0.25 },
-        { ticker: 'CELO', name: 'Celo', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: 0.75 },
-        { ticker: 'ARB', name: 'Arbitrum', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: 1.80 },
-        { ticker: 'CVX', name: 'Convex Finance', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: 3.50 },
-        { ticker: 'MATIC', name: 'Polygon', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: 0.85 },
-        { ticker: 'DOT', name: 'Polkadot', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: 6.50 },
-        { ticker: 'AVAX', name: 'Avalanche', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: 35.00 },
-        { ticker: 'LINK', name: 'Chainlink', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: 14.20 },
-        { ticker: 'UNI', name: 'Uniswap', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: 6.10 },
-        { ticker: 'LUNA', name: 'Terra', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: 0.60 },
-        { ticker: 'AXL', name: 'Axelar', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: 0.88 },
-        { ticker: 'DATA', name: 'Streamr', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: 0.05 },
-        { ticker: 'GIGA', name: 'Gigachad', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: 0.0000003 },
-        { ticker: 'PORTO', name: 'FC Porto Fan Token', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: 2.50 },
-        { ticker: 'CELR', name: 'Celer Network', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: 0.02 },
-        { ticker: 'ANKR', name: 'Ankr', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: 0.04 },
-        { ticker: 'ALPINE', name: 'Alpine F1 Team Fan Token', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: 1.80 },
-        { ticker: 'ETHFI', name: 'ether.fi', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: 4.50 },
-        { ticker: 'BCH', name: 'Bitcoin Cash', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: 450.00 },
-        { ticker: 'JOE', name: 'JOE', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: 0.50 },
-        { ticker: 'ENJ', name: 'Enjin Coin', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: 0.35 },
-        { ticker: 'LSK', name: 'Lisk', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: 1.50 },
-        { ticker: 'GRT', name: 'The Graph', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: 0.30 },
-        { ticker: 'SATS', name: 'SATS', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: 0.0000005 },
-        { ticker: 'BOME', name: 'BOOK OF MEME', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: 0.012 },
-        { ticker: 'BSW', name: 'Biswap', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: 0.08 },
-        { ticker: 'BAND', name: 'Band Protocol', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: 1.80 },
-        { ticker: 'OGN', name: 'Origin Protocol', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: 0.15 },
-        { ticker: 'PHB', name: 'Red Pulse Phoenix', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: 1.20 },
-        { ticker: 'NOT', name: 'Notcoin', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: 0.015 },
-        { ticker: 'RDNT', name: 'Radiant Capital', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: 0.25 },
-        { ticker: 'ADX', name: 'AdEx', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: 0.20 },
-        { ticker: 'AAVE', name: 'Aave', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: 90.00 },
-        { ticker: 'SC', name: 'Siacoin', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: 0.007 },
-        { ticker: 'CFX', name: 'Conflux', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: 0.20 },
     ],
     news: [{ title: "Static News: Market Shows Mixed Signals", source: "Demo Feed", summary: "A summary of market news.", url: "#" }],
     fxRates: { 'USD': 1.0, 'EUR': 0.92, 'GBP': 0.79, 'JPY': 157.5, 'INR': 83.5, 'NGN': 1480, 'QAR': 3.64, 'SAR': 3.75 },
 };
 
 // --- CORE LOGIC HANDLERS ---
+const getAvailableAssetsAlphaVantage = async (): Promise<Asset[]> => {
+    if (!ALPHA_VANTAGE_API_KEY) {
+        throw new Error("ALPHA_VANTAGE_API_KEY is not set.");
+    }
+    const url = `${ALPHA_VANTAGE_URL}?function=LISTING_STATUS&apikey=${ALPHA_VANTAGE_API_KEY}`;
+    const csvData = await apiFetch(url, true) as string;
+    const lines = csvData.split('\n').slice(1); // Skip header
+    const assets: Asset[] = lines
+        .map(line => {
+            const [symbol, name, exchange, assetType, ipoDate, delistingDate, status] = line.split(',');
+            if (status && status.trim() === 'Active' && (exchange === 'NASDAQ' || exchange === 'NYSE')) {
+                return {
+                    ticker: symbol,
+                    name: name,
+                    country: 'US', // Alpha Vantage does not provide country
+                    sector: 'Unknown', // Not provided in this endpoint
+                    asset_class: 'EQUITY',
+                };
+            }
+            return null;
+        })
+        .filter((a): a is Asset => a !== null)
+        .slice(0, 150); // Limit to 150 to keep it manageable
+
+    if (assets.length === 0) throw new Error("Alpha Vantage returned no active assets.");
+
+    // Add cryptos manually as AV listing status is for stocks
+    return [...assets, ...staticData.assets.filter(a => a.asset_class === 'CRYPTO')];
+}
+
 const handlers: Record<string, (payload: any) => Promise<any>> = {
   getAvailableAssets: async () => {
-    if (!FMP_API_KEY) {
-        console.error("FMP_API_KEY is not set in Supabase secrets. Falling back to static data.");
-        const assets = [...staticData.stocks, ...staticData.cryptos];
-        return { data: { assets }, source: 'static' };
+    // --- STRATEGY 1: Try FMP with a reliable batch quote request ---
+    if (FMP_API_KEY) {
+        try {
+            const tickers = staticData.assets.map(a => a.ticker).join(',');
+            const url = `${FMP_BASE_URL}/quote/${tickers}?apikey=${FMP_API_KEY}`;
+            const data = await apiFetch(url);
+            if (!data || data.length === 0) throw new Error("FMP batch quote returned no data.");
+            
+            const assets = data.map((a: any): Asset => {
+                const staticAsset = staticData.assets.find(s => s.ticker === a.symbol);
+                return {
+                    ticker: a.symbol,
+                    name: a.name || staticAsset?.name,
+                    price: a.price,
+                    country: staticAsset?.country || 'US',
+                    sector: staticAsset?.sector || 'Unknown',
+                    asset_class: staticAsset?.asset_class || 'EQUITY',
+                };
+            });
+            return { data: { assets }, source: 'live' as DataSource };
+        } catch (e) {
+            console.warn(`FMP live asset fetch failed. Trying Alpha Vantage. Error: ${e.message}`);
+        }
     }
-    try {
-        const url = `${FMP_BASE_URL}/stock-screener?limit=25&exchange=NASDAQ,NYSE&apikey=${FMP_API_KEY}`;
-        const data = await apiFetch(url);
-        if (!data || data.length === 0) throw new Error("FMP API returned no assets.");
-        
-        const stockAssets = data.map((a: any): Asset => ({
-            ticker: a.symbol, name: a.companyName, country: a.country, sector: a.sector || 'Unknown', asset_class: 'EQUITY',
-            price: a.price, is_esg: a.isEsg, is_shariah_compliant: a.isShariahCompliant,
-        }));
-        
-        const cryptoAssets: Asset[] = staticData.cryptos.map(c => ({ ...c }));
-        const assets = [...stockAssets, ...cryptoAssets];
-        return { data: { assets }, source: 'live' as DataSource };
-    } catch (e) {
-        console.error(`Failed to fetch live assets, falling back to static data. Error: ${e.message}`);
-        const assets = [...staticData.stocks, ...staticData.cryptos];
-        console.log("Falling back to a list of", assets.length, "static assets.");
-        return { data: { assets }, source: 'static' as DataSource };
+
+    // --- STRATEGY 2: Fallback to Alpha Vantage ---
+    if (ALPHA_VANTAGE_API_KEY) {
+        try {
+            const assets = await getAvailableAssetsAlphaVantage();
+            return { data: { assets }, source: 'live' as DataSource };
+        } catch (e) {
+             console.warn(`Alpha Vantage asset fetch failed. Falling back to static data. Error: ${e.message}`);
+        }
     }
+    
+    // --- STRATEGY 3: Fallback to large static list ---
+    console.log("All live data sources failed. Falling back to static asset list.");
+    return { data: { assets: staticData.assets }, source: 'static' as DataSource };
   },
   getAssetPriceHistory: async ({ ticker }) => {
     try {
@@ -183,33 +193,27 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
   },
   getFinancialRatios: async ({ ticker }) => {
      try {
-        const results = await Promise.allSettled([
-          apiFetch(`${FMP_BASE_URL}/ratios-ttm/${ticker}?apikey=${FMP_API_KEY}`),
-          apiFetch(`${FMP_BASE_URL}/profile/${ticker}?apikey=${FMP_API_KEY}`)
-        ]);
-
-        const ratio = results[0].status === 'fulfilled' ? (results[0].value[0] || {}) : {};
-        const profile = results[1].status === 'fulfilled' ? (results[1].value[0] || {}) : {};
-
-        // If both failed, re-throw the first error to be caught by the main handler.
-        if (results[0].status === 'rejected' && results[1].status === 'rejected') {
-            throw results[0].reason;
-        }
+        const url = `${FMP_BASE_URL}/quote/${ticker}?apikey=${FMP_API_KEY}`;
+        const data = await apiFetch(url);
+        const quote = data[0] || {};
 
         const ratios = [
-            { label: 'P/E (TTM)', value: ratio.priceEarningsRatioTTM?.toFixed(2) ?? 'N/A' },
-            { label: 'P/B', value: ratio.priceToBookRatioTTM?.toFixed(2) ?? 'N/A' },
-            { label: 'Dividend Yield', value: ratio.dividendYieldTTM ? `${(ratio.dividendYieldTTM * 100).toFixed(2)}%` : 'N/A' },
-            { label: 'Market Cap', value: formatLargeNumber(profile.mktCap) },
-            { label: 'EPS (TTM)', value: ratio.epsTTM?.toFixed(2) ?? 'N/A' },
-            { label: 'Beta', value: profile.beta?.toFixed(2) ?? 'N/A' },
+            { label: 'P/E (TTM)', value: quote.pe?.toFixed(2) ?? 'N/A' },
+            { label: 'P/B', value: 'N/A' }, // Not available in /quote
+            { label: 'Dividend Yield', value: 'N/A' }, // Not available in /quote
+            { label: 'Market Cap', value: formatLargeNumber(quote.marketCap) },
+            { label: 'EPS (TTM)', value: quote.eps?.toFixed(2) ?? 'N/A' },
+            { label: 'Beta', value: 'N/A' }, // Not available in /quote
         ];
         return { data: ratios, source: 'live' };
      } catch (e) {
-         // This catch block will now only be hit if both promises reject,
-         // or for other unexpected errors.
          console.error(`Error in getFinancialRatios for ${ticker}:`, e);
-         return { data: [], source: 'static' };
+         // Provide a minimal static fallback
+         return { data: [
+            { label: 'P/E (TTM)', value: 'N/A' }, { label: 'P/B', value: 'N/A' },
+            { label: 'Dividend Yield', value: 'N/A' }, { label: 'Market Cap', value: 'N/A' },
+            { label: 'EPS (TTM)', value: 'N/A' }, { label: 'Beta', value: 'N/A' },
+         ], source: 'static' };
      }
   },
   getFinancialsSnapshot: async ({ ticker }) => {
@@ -340,7 +344,7 @@ serve(async (req) => {
     let errorMessage = error.message;
 
     if (status === 401 || status === 403) {
-        errorMessage = "API key authentication failed. Please verify your FMP_API_KEY is correct and has the necessary permissions in your Supabase project secrets.";
+        errorMessage = "API key authentication failed. Please check your FMP and/or Alpha Vantage API keys in your Supabase project secrets and ensure they have the necessary permissions.";
     }
     return new Response(JSON.stringify({ error: errorMessage }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status });
   }

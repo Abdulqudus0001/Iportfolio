@@ -96,6 +96,7 @@ Follow these instructions to deploy the application and its backend functions us
     - Navigate to **Project Settings > Edge Functions**.
     - Add a new secret for each of the following:
         - `FMP_API_KEY`: Your key from Financial Modeling Prep.
+        - `ALPHA_VANTAGE_API_KEY`: Your key from Alpha Vantage (used as a fallback).
         - `NEWS_API_KEY`: Your key from NewsAPI.
         - `GEMINI_API_KEY`: Your key from Google AI Studio.
 
