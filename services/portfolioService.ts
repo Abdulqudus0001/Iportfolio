@@ -1,6 +1,6 @@
 import { Asset, OptimizationResult, MCMCResult, PortfolioAsset, PortfolioTemplate, PriceDataPoint, CorrelationData, ContributionData, ConstraintOptions, BacktestResult, Scenario, ScenarioResult, FactorExposures, VaRResult, TaxLossHarvestingResult, OptimizationModel, BlackLittermanView, SavedPortfolio, Currency, DataSource } from '../types';
 import { supabase } from './supabaseClient';
-import { cacheService } from './cacheService';
+import { cacheService, TTL } from './cacheService';
 import { ServiceResponse } from './marketDataService';
 
 async function invokeApiProxy<T>(command: string, payload?: object): Promise<T> {
@@ -35,8 +35,10 @@ export const portfolioService = {
       
       return cacheService.withCache<CorrelationData>(
           cacheKey,
-          async () => (await invokeApiProxy<CorrelationData>('getCorrelationMatrix', { assets, currency })).data,
-          staticFallback
+          // FIX: The invokeApiProxy in this file returns the data directly, not wrapped in a response object with a .data property.
+          async () => invokeApiProxy<CorrelationData>('getCorrelationMatrix', { assets, currency }),
+          staticFallback,
+          TTL.ONE_HOUR
       );
   },
 

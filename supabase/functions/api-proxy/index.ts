@@ -79,6 +79,10 @@ const staticData = {
         { ticker: 'NEE', name: 'NextEra Energy', country: 'US', sector: 'Utilities', asset_class: 'EQUITY', is_esg: true, is_shariah_compliant: true },
         { ticker: 'HD', name: 'Home Depot', country: 'US', sector: 'Consumer Cyclical', asset_class: 'EQUITY', is_esg: false, is_shariah_compliant: true },
         { ticker: 'SOL', name: 'Solana', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO' },
+        { ticker: 'XRP', name: 'XRP', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO' },
+        { ticker: 'DOGE', name: 'Dogecoin', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO' },
+        { ticker: 'ADA', name: 'Cardano', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO' },
+        { ticker: 'MATIC', name: 'Polygon', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO' },
     ],
     news: [{ title: "Static News: Market Shows Mixed Signals", source: "Demo Feed", summary: "A summary of market news.", url: "#" }],
     fxRates: { 'USD': 1.0, 'EUR': 0.92, 'GBP': 0.79, 'JPY': 157.5, 'INR': 83.5, 'NGN': 1480, 'QAR': 3.64, 'SAR': 3.75 },
@@ -206,20 +210,56 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
       }
   },
   getFinancialRatios: async ({ ticker }) => {
-     try {
-        const [quoteData, profileData] = await Promise.all([
-            apiFetch(`${FMP_BASE_URL}/quote/${ticker}?apikey=${FMP_API_KEY}`),
-            apiFetch(`${FMP_BASE_URL}/profile/${ticker}?apikey=${FMP_API_KEY}`)
-        ]);
-        const quote = quoteData[0] || {};
-        const profile = profileData[0] || {};
-        return { data: [
-            { label: 'P/E (TTM)', value: quote.pe?.toFixed(2) ?? 'N/A' },
-            { label: 'Market Cap', value: formatLargeNumber(quote.marketCap) },
-            { label: 'EPS (TTM)', value: quote.eps?.toFixed(2) ?? 'N/A' },
-            { label: 'Beta', value: profile.beta?.toFixed(2) ?? 'N/A' },
-        ], source: 'live' };
-     } catch (e) { return { data: [], source: 'static' }; }
+    const assetInfo = staticData.assets.find(a => a.ticker === ticker);
+    const isCrypto = assetInfo && assetInfo.asset_class === 'CRYPTO';
+
+    try {
+        if (isCrypto) {
+            const fmpTicker = `${ticker}USD`;
+            const quoteData = await apiFetch(`${FMP_BASE_URL}/quote/${fmpTicker}?apikey=${FMP_API_KEY}`);
+            const quote = quoteData[0] || {};
+            if (!quote.marketCap) {
+                return { data: [], source: 'static' };
+            }
+            return {
+                data: [
+                    { label: 'Market Cap', value: formatLargeNumber(quote.marketCap) },
+                    { label: 'Circulating Supply', value: formatLargeNumber(quote.sharesOutstanding) }, 
+                    { label: '24h Volume', value: formatLargeNumber(quote.volume) },
+                    { label: '24h Change', value: quote.changesPercentage != null ? `${quote.changesPercentage.toFixed(2)}%` : 'N/A' },
+                ].filter(r => r.value !== 'N/A' && r.value !== null && r.value !== undefined),
+                source: 'live'
+            };
+        } else {
+            const [quoteData, profileData, keyMetricsData] = await Promise.all([
+                apiFetch(`${FMP_BASE_URL}/quote/${ticker}?apikey=${FMP_API_KEY}`).catch(() => [{}]),
+                apiFetch(`${FMP_BASE_URL}/profile/${ticker}?apikey=${FMP_API_KEY}`).catch(() => [{}]),
+                apiFetch(`${FMP_BASE_URL}/key-metrics-ttm/${ticker}?apikey=${FMP_API_KEY}`).catch(() => [{}])
+            ]);
+            
+            const quote = quoteData[0] || {};
+            const profile = profileData[0] || {};
+            const metrics = keyMetricsData[0] || {};
+
+            const ratios = [
+                { label: 'P/E (TTM)', value: quote.pe?.toFixed(2) ?? metrics.peRatioTTM?.toFixed(2) },
+                { label: 'P/B', value: metrics.priceToBookRatioTTM?.toFixed(2) },
+                { label: 'Dividend Yield', value: metrics.dividendYieldTTM != null ? `${(metrics.dividendYieldTTM * 100).toFixed(2)}%` : undefined },
+                { label: 'Market Cap', value: formatLargeNumber(quote.marketCap) },
+                { label: 'EPS (TTM)', value: quote.eps?.toFixed(2) ?? metrics.epsTTM?.toFixed(2) },
+                { label: 'Beta', value: profile.beta?.toFixed(2) },
+            ];
+
+            const finalRatios = ratios
+                .map(r => ({ ...r, value: r.value ?? 'N/A' }))
+                .filter(r => r.value !== 'N/A');
+            
+            return { data: finalRatios, source: 'live' };
+        }
+    } catch (e) {
+        console.error(`Failed to get financial ratios for ${ticker}:`, e.message);
+        return { data: [], source: 'static' };
+    }
   },
   getFinancialsSnapshot: async ({ ticker }) => {
       try {
@@ -261,9 +301,7 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
     return new ReadableStream({
       async start(controller) {
         for await (const chunk of streamResult) {
-          // FIX: The .text property on a streaming chunk is a convenience getter. Using it directly is correct.
-          // The reported error was likely due to an environmental issue or a misinterpretation of the line number.
-          // This implementation is correct according to the latest @google/genai SDK guidelines.
+          // FIX: Per @google/genai guidelines, the `text` property should be accessed directly, not called as a function.
           const text = chunk.text;
           if (text) {
             controller.enqueue(new TextEncoder().encode(text));

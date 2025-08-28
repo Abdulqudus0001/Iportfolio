@@ -3,11 +3,18 @@ interface CacheItem<T> {
   data: T;
 }
 
-const CACHE_TTL = 15 * 60 * 1000; // 15 minutes
+// Define various TTLs for tiered caching
+export const TTL = {
+    FIFTEEN_MINUTES: 15 * 60 * 1000,
+    ONE_HOUR: 60 * 60 * 1000,
+    SIX_HOURS: 6 * 60 * 60 * 1000,
+    TWENTY_FOUR_HOURS: 24 * 60 * 60 * 1000,
+};
+
 const CACHE_PREFIX = 'iportfolio-cache-';
 
 export const cacheService = {
-  get: <T>(key: string): T | null => {
+  get: <T>(key: string, ttl: number = TTL.FIFTEEN_MINUTES): T | null => {
     try {
       const itemStr = localStorage.getItem(CACHE_PREFIX + key);
       if (!itemStr) {
@@ -15,8 +22,8 @@ export const cacheService = {
       }
       const item: CacheItem<T> = JSON.parse(itemStr);
       const now = new Date().getTime();
-      if (now - item.timestamp > CACHE_TTL) {
-        localStorage.removeItem(CACHE_PREFIX + key);
+      if (now - item.timestamp > ttl) {
+        // Don't remove here, let stale-while-revalidate handle it
         return null;
       }
       return item.data;
@@ -53,19 +60,42 @@ export const cacheService = {
     }
   },
 
-  withCache: async <T>(key: string, fetcher: () => Promise<T>, staticFallback: T): Promise<{ data: T; source: 'live' | 'cache' | 'static' }> => {
-    const cached = cacheService.get<T>(key);
-    if (cached) {
-        return { data: cached, source: 'cache' };
+  withCache: async <T>(key: string, fetcher: () => Promise<T>, staticFallback: T, ttl: number = TTL.FIFTEEN_MINUTES): Promise<{ data: T; source: 'live' | 'cache' | 'static' }> => {
+    const cachedFresh = cacheService.get<T>(key, ttl);
+    
+    // 1. If fresh data exists, return it immediately.
+    if (cachedFresh) {
+        return { data: cachedFresh, source: 'cache' };
     }
+
+    const cachedStale = cacheService.getStale<T>(key);
+
+    // This function triggers a background refresh. It's a "fire-and-forget" promise.
+    const revalidate = () => {
+        fetcher().then(liveData => {
+            console.log(`Background revalidation successful for ${key}.`);
+            cacheService.set(key, liveData);
+        }).catch(error => {
+            console.warn(`Background revalidation failed for ${key}.`, error);
+        });
+    };
+
+    // 2. If stale data exists, return it now and trigger a revalidation in the background.
+    if (cachedStale) {
+        console.log(`Serving stale data for ${key} and revalidating in background.`);
+        revalidate(); 
+        return { data: cachedStale, source: 'cache' };
+    }
+
+    // 3. If no data exists at all, fetch synchronously, wait for the result, and return it.
     try {
+        console.log(`No cache for ${key}. Fetching live data...`);
         const liveData = await fetcher();
         cacheService.set(key, liveData);
         return { data: liveData, source: 'live' };
     } catch (error) {
-        console.warn(`Live data fetch failed for ${key}. Using static fallback.`, error);
-        const stale = cacheService.getStale<T>(key);
-        if (stale) return { data: stale, source: 'cache' };
+        // 4. If the initial fetch fails, there's no stale data to fall back on, so use the static fallback.
+        console.warn(`Initial fetch failed for ${key}. Using static fallback.`, error);
         return { data: staticFallback, source: 'static' };
     }
   },

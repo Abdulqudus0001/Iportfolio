@@ -1,6 +1,6 @@
 import { FinancialRatio, Financials, PriceDataPoint, PriceSummary, Asset, DividendInfo, EsgData, OptionContract, Currency, DataSource } from '../types';
 import { supabase } from './supabaseClient';
-import { cacheService } from './cacheService';
+import { cacheService, TTL } from './cacheService';
 
 export interface ServiceResponse<T> {
   data: T;
@@ -29,7 +29,8 @@ export const marketDataService = {
         const result = await cacheService.withCache<ServiceResponse<{ assets: Asset[] }>>(
             cacheKey,
             () => invokeApiProxy<{ assets: Asset[] }>('getAvailableAssets'),
-            { data: { assets: [] }, source: 'static' } // Static fallback is an empty array
+            { data: { assets: [] }, source: 'static' },
+            TTL.SIX_HOURS
         );
         return result.data.data.assets;
     },
@@ -40,7 +41,8 @@ export const marketDataService = {
         return cacheService.withCache<PriceDataPoint[]>(
             cacheKey,
             async () => (await invokeApiProxy<PriceDataPoint[]>('getAssetPriceHistory', { ticker, interval })).data,
-            []
+            [],
+            TTL.TWENTY_FOUR_HOURS
         );
     },
 
@@ -83,7 +85,8 @@ export const marketDataService = {
         return cacheService.withCache<{description: string, beta: number}>(
             cacheKey,
             async () => (await invokeApiProxy<{description: string, beta: number}>('getCompanyProfile', { ticker })).data,
-            staticFallback
+            staticFallback,
+            TTL.TWENTY_FOUR_HOURS
         );
     },
 
@@ -93,7 +96,8 @@ export const marketDataService = {
         return cacheService.withCache<any[]>(
             cacheKey,
             async () => (await invokeApiProxy<any[]>('getMarketNews')).data,
-            []
+            [],
+            TTL.ONE_HOUR
         );
     },
 
@@ -103,17 +107,20 @@ export const marketDataService = {
         return cacheService.withCache<DividendInfo | null>(
             cacheKey,
             async () => (await invokeApiProxy<DividendInfo | null>('getDividendInfo', { ticker })).data,
-            null
+            null,
+            TTL.TWENTY_FOUR_HOURS
         );
     },
 
     // FIX: Refactored to correctly use withCache by passing the data type as T and unwrapping the response in the fetcher.
     getEsgData: (ticker: string): Promise<ServiceResponse<EsgData | null>> => {
         const cacheKey = `esg-data-${ticker}`;
-        return cacheService.withCache<EsggData | null>(
+        // FIX: Corrected typo from EsggData to EsgData
+        return cacheService.withCache<EsgData | null>(
             cacheKey,
             async () => (await invokeApiProxy<EsgData | null>('getEsgData', { ticker })).data,
-            null
+            null,
+            TTL.TWENTY_FOUR_HOURS
         );
     },
 
