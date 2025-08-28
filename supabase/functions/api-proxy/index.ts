@@ -1,3 +1,4 @@
+
 // Declaring the Deno global object resolves TypeScript errors in non-Deno environments
 // and is a robust way to handle type checking for Supabase Edge Functions.
 declare const Deno: any;
@@ -21,264 +22,229 @@ type DataSource = 'live' | 'cache' | 'static';
 
 // --- API CLIENTS & HELPERS ---
 const FMP_API_KEY = Deno.env.get("FMP_API_KEY");
+const ALPHA_VANTAGE_API_KEY = Deno.env.get("ALPHA_VANTAGE_API_KEY");
 const NEWS_API_KEY = Deno.env.get("NEWS_API_KEY");
 const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
-const ALPHA_VANTAGE_API_KEY = Deno.env.get("ALPHA_VANTAGE_API_KEY");
 
 const FMP_BASE_URL = 'https://financialmodelingprep.com/api/v3';
-const ALPHA_VANTAGE_URL = 'https://www.alphavantage.co/query';
+const AV_BASE_URL = 'https://www.alphavantage.co/query';
 
-
-const apiFetch = async (url: string, isCsv = false) => {
+const apiFetch = async (url: string) => {
     const res = await fetch(url);
     if (!res.ok) {
-        const error = new Error(`API error: ${res.status} ${res.statusText} on URL: ${url}`);
+        const errorText = await res.text();
+        const error = new Error(`API error: ${res.status} ${res.statusText} on URL: ${url}. Response: ${errorText}`);
         (error as any).status = res.status;
         throw error;
-    }
-    if (isCsv) {
-        return res.text();
     }
     return res.json();
 }
 
-const formatVolume = (vol: number) => {
-    if (!vol) return 'N/A';
-    if (vol > 1_000_000) return `${(vol / 1_000_000).toFixed(2)}M`;
-    if (vol > 1_000) return `${(vol / 1_000).toFixed(2)}K`;
-    return vol.toString();
+const formatVolume = (vol: number | string) => {
+    const numVol = Number(vol);
+    if (isNaN(numVol) || !numVol) return 'N/A';
+    if (numVol > 1_000_000) return `${(numVol / 1_000_000).toFixed(2)}M`;
+    if (numVol > 1_000) return `${(numVol / 1_000).toFixed(2)}K`;
+    return numVol.toString();
 };
 
-const formatLargeNumber = (num: number) => {
-    if (!num) return 'N/A';
-    if (Math.abs(num) >= 1e12) return `${(num / 1e12).toFixed(2)}T`;
-    if (Math.abs(num) >= 1e9) return `${(num / 1e9).toFixed(2)}B`;
-    if (Math.abs(num) >= 1e6) return `${(num / 1e6).toFixed(2)}M`;
-    return num.toLocaleString();
+const formatLargeNumber = (num: number | string) => {
+    const numParsed = Number(num);
+    if (isNaN(numParsed) || !numParsed) return 'N/A';
+    if (Math.abs(numParsed) >= 1e12) return `${(numParsed / 1e12).toFixed(2)}T`;
+    if (Math.abs(numParsed) >= 1e9) return `${(numParsed / 1e9).toFixed(2)}B`;
+    if (Math.abs(numParsed) >= 1e6) return `${(numParsed / 1e6).toFixed(2)}M`;
+    return numParsed.toLocaleString();
 };
 
 
-// --- STATIC DATA (for fallbacks) ---
+// --- STATIC DATA (for fallbacks and bulletproof asset list) ---
 const staticData = {
     assets: [
         // US Stocks
-        { ticker: 'AAPL', name: 'Apple Inc.', country: 'US', sector: 'Technology', asset_class: 'EQUITY', is_esg: true, is_shariah_compliant: true, price: 172.5 },
-        { ticker: 'MSFT', name: 'Microsoft Corporation', country: 'US', sector: 'Technology', asset_class: 'EQUITY', is_esg: true, is_shariah_compliant: true, price: 305.2 },
-        { ticker: 'GOOGL', name: 'Alphabet Inc.', country: 'US', sector: 'Technology', asset_class: 'EQUITY', is_esg: false, is_shariah_compliant: true, price: 136.8 },
-        { ticker: 'AMZN', name: 'Amazon.com, Inc.', country: 'US', sector: 'Consumer Cyclical', asset_class: 'EQUITY', is_esg: false, is_shariah_compliant: true, price: 130.5 },
-        { ticker: 'NVDA', name: 'NVIDIA Corporation', country: 'US', sector: 'Technology', asset_class: 'EQUITY', is_esg: false, is_shariah_compliant: true, price: 450.0 },
-        { ticker: 'TSLA', name: 'Tesla, Inc.', country: 'US', sector: 'Consumer Cyclical', asset_class: 'EQUITY', is_esg: false, is_shariah_compliant: false, price: 250.0 },
-        { ticker: 'JPM', name: 'JPMorgan Chase & Co.', country: 'US', sector: 'Financial Services', asset_class: 'EQUITY', is_esg: false, is_shariah_compliant: false, price: 142.3 },
-        { ticker: 'JNJ', name: 'Johnson & Johnson', country: 'US', sector: 'Healthcare', asset_class: 'EQUITY', is_esg: true, is_shariah_compliant: true, price: 166.1 },
-        { ticker: 'V', name: 'Visa Inc.', country: 'US', sector: 'Financial Services', asset_class: 'EQUITY', is_esg: true, is_shariah_compliant: false, price: 238.4 },
-        { ticker: 'PG', name: 'Procter & Gamble Company', country: 'US', sector: 'Consumer Defensive', asset_class: 'EQUITY', is_esg: true, is_shariah_compliant: true, price: 151.2 },
-        { ticker: 'XOM', name: 'Exxon Mobil Corporation', country: 'US', sector: 'Energy', asset_class: 'EQUITY', is_esg: false, is_shariah_compliant: true, price: 112.9 },
-        { ticker: 'HD', name: 'The Home Depot, Inc.', country: 'US', sector: 'Consumer Cyclical', asset_class: 'EQUITY', is_esg: false, is_shariah_compliant: true, price: 335.7 },
-        { ticker: 'MCD', name: "McDonald's Corporation", country: 'US', sector: 'Consumer Cyclical', asset_class: 'EQUITY', is_esg: false, is_shariah_compliant: false, price: 292.1 },
+        { ticker: 'AAPL', name: 'Apple Inc.', country: 'US', sector: 'Technology', asset_class: 'EQUITY', is_esg: true, is_shariah_compliant: true },
+        { ticker: 'MSFT', name: 'Microsoft Corp.', country: 'US', sector: 'Technology', asset_class: 'EQUITY', is_esg: true, is_shariah_compliant: true },
+        { ticker: 'GOOGL', name: 'Alphabet Inc.', country: 'US', sector: 'Technology', asset_class: 'EQUITY', is_esg: false, is_shariah_compliant: true },
+        { ticker: 'AMZN', name: 'Amazon.com, Inc.', country: 'US', sector: 'Consumer Cyclical', asset_class: 'EQUITY', is_esg: false, is_shariah_compliant: true },
+        { ticker: 'NVDA', name: 'NVIDIA Corporation', country: 'US', sector: 'Technology', asset_class: 'EQUITY', is_esg: false, is_shariah_compliant: true },
+        { ticker: 'TSLA', name: 'Tesla, Inc.', country: 'US', sector: 'Consumer Cyclical', asset_class: 'EQUITY', is_esg: false, is_shariah_compliant: false },
+        { ticker: 'JPM', name: 'JPMorgan Chase & Co.', country: 'US', sector: 'Financial Services', asset_class: 'EQUITY', is_esg: false, is_shariah_compliant: false },
+        { ticker: 'JNJ', name: 'Johnson & Johnson', country: 'US', sector: 'Healthcare', asset_class: 'EQUITY', is_esg: true, is_shariah_compliant: true },
+        { ticker: 'V', name: 'Visa Inc.', country: 'US', sector: 'Financial Services', asset_class: 'EQUITY', is_esg: true, is_shariah_compliant: false },
+        { ticker: 'PG', name: 'Procter & Gamble', country: 'US', sector: 'Consumer Defensive', asset_class: 'EQUITY', is_esg: true, is_shariah_compliant: true },
         // ETFs
-        { ticker: 'SPY', name: 'SPDR S&P 500 ETF Trust', country: 'US', sector: 'Mixed', asset_class: 'BENCHMARK', price: 452.8 },
-        { ticker: 'QQQ', name: 'Invesco QQQ Trust', country: 'US', sector: 'Mixed', asset_class: 'BENCHMARK', price: 385.2 },
-        { ticker: 'AGG', name: 'iShares Core U.S. Aggregate Bond ETF', country: 'US', sector: 'Mixed', asset_class: 'BENCHMARK', price: 98.5 },
-        // International
-        { ticker: 'TSM', name: 'Taiwan Semiconductor', country: 'US', sector: 'Technology', asset_class: 'EQUITY', is_esg: false, is_shariah_compliant: true, price: 98.6 },
-        { ticker: '2222.SR', name: 'Saudi Aramco', country: 'SAUDI ARABIA', sector: 'Energy', asset_class: 'EQUITY', is_esg: false, is_shariah_compliant: true, price: 35.50 },
-        { ticker: 'QNBK.QA', name: 'Qatar National Bank', country: 'QATAR', sector: 'Financial Services', asset_class: 'EQUITY', is_esg: false, is_shariah_compliant: true, price: 17.20 },
-        { ticker: 'DANGCEM.LG', name: 'Dangote Cement', country: 'NIGERIA', sector: 'Basic Materials', asset_class: 'EQUITY', is_esg: false, is_shariah_compliant: true, price: 280.00 },
-        { ticker: 'HSBC.L', name: 'HSBC Holdings plc', country: 'UK', sector: 'Financial Services', asset_class: 'EQUITY', is_esg: true, is_shariah_compliant: false, price: 6.50 },
+        { ticker: 'SPY', name: 'SPDR S&P 500 ETF', country: 'US', sector: 'Mixed', asset_class: 'BENCHMARK' },
+        { ticker: 'QQQ', name: 'Invesco QQQ Trust', country: 'US', sector: 'Mixed', asset_class: 'BENCHMARK' },
         // Crypto
-        { ticker: 'BTC', name: 'Bitcoin', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: 43500 },
-        { ticker: 'ETH', name: 'Ethereum', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: 2300 },
-        { ticker: 'SOL', name: 'Solana', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: 65.5 },
-        { ticker: 'XRP', name: 'XRP', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: 0.62 },
-        { ticker: 'DOGE', name: 'Dogecoin', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: 0.08 },
-        { ticker: 'ADA', name: 'Cardano', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: 0.55 },
+        { ticker: 'BTC', name: 'Bitcoin', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO' },
+        { ticker: 'ETH', name: 'Ethereum', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO' },
     ],
     news: [{ title: "Static News: Market Shows Mixed Signals", source: "Demo Feed", summary: "A summary of market news.", url: "#" }],
     fxRates: { 'USD': 1.0, 'EUR': 0.92, 'GBP': 0.79, 'JPY': 157.5, 'INR': 83.5, 'NGN': 1480, 'QAR': 3.64, 'SAR': 3.75 },
 };
 
 // --- CORE LOGIC HANDLERS ---
-const getAvailableAssetsAlphaVantage = async (): Promise<Asset[]> => {
-    if (!ALPHA_VANTAGE_API_KEY) {
-        throw new Error("ALPHA_VANTAGE_API_KEY is not set.");
-    }
-    const url = `${ALPHA_VANTAGE_URL}?function=LISTING_STATUS&apikey=${ALPHA_VANTAGE_API_KEY}`;
-    const csvData = await apiFetch(url, true) as string;
-    const lines = csvData.split('\n').slice(1); // Skip header
-    const assets: Asset[] = lines
-        .map(line => {
-            const [symbol, name, exchange, assetType, ipoDate, delistingDate, status] = line.split(',');
-            if (status && status.trim() === 'Active' && (exchange === 'NASDAQ' || exchange === 'NYSE')) {
-                return {
-                    ticker: symbol,
-                    name: name,
-                    country: 'US', // Alpha Vantage does not provide country
-                    sector: 'Unknown', // Not provided in this endpoint
-                    asset_class: 'EQUITY',
-                };
-            }
-            return null;
-        })
-        .filter((a): a is Asset => a !== null)
-        .slice(0, 25); // Limit to 25 to be safe with free keys
-
-    if (assets.length === 0) throw new Error("Alpha Vantage returned no active assets.");
-
-    // Add cryptos manually as AV listing status is for stocks
-    return [...assets, ...staticData.assets.filter(a => a.asset_class === 'CRYPTO')];
-}
-
 const handlers: Record<string, (payload: any) => Promise<any>> = {
   getAvailableAssets: async () => {
-    // --- STRATEGY 1: Try FMP with a reliable batch quote request ---
-    if (FMP_API_KEY) {
-        try {
-            const tickers = staticData.assets.map(a => a.ticker).join(',');
-            const url = `${FMP_BASE_URL}/quote/${tickers}?apikey=${FMP_API_KEY}`;
-            const data = await apiFetch(url);
-            if (!data || data.length === 0) throw new Error("FMP batch quote returned no data.");
-            
-            const assets = data.map((a: any): Asset => {
-                const staticAsset = staticData.assets.find(s => s.ticker === a.symbol);
-                return {
-                    ticker: a.symbol,
-                    name: a.name || staticAsset?.name,
-                    price: a.price,
-                    country: staticAsset?.country || 'US',
-                    sector: staticAsset?.sector || 'Unknown',
-                    asset_class: staticAsset?.asset_class || 'EQUITY',
-                    is_esg: staticAsset?.is_esg,
-                    is_shariah_compliant: staticAsset?.is_shariah_compliant
-                };
-            });
-            return { data: { assets }, source: 'live' as DataSource };
-        } catch (e) {
-            console.warn(`FMP live asset fetch failed. Trying Alpha Vantage. Error: ${e.message}`);
-        }
-    }
+    try {
+        console.log("Attempting to fetch live asset list from FMP...");
+        const [stockData, cryptoData] = await Promise.all([
+            apiFetch(`${FMP_BASE_URL}/stock/list?apikey=${FMP_API_KEY}`),
+            apiFetch(`${FMP_BASE_URL}/symbol/available-cryptocurrencies?apikey=${FMP_API_KEY}`)
+        ]);
 
-    // --- STRATEGY 2: Fallback to Alpha Vantage ---
-    if (ALPHA_VANTAGE_API_KEY) {
-        try {
-            const assets = await getAvailableAssetsAlphaVantage();
-            return { data: { assets }, source: 'live' as DataSource };
-        } catch (e) {
-             console.warn(`Alpha Vantage asset fetch failed. Falling back to static data. Error: ${e.message}`);
-        }
+        const majorExchanges = new Set(['NASDAQ', 'NYSE', 'AMEX']);
+        const filteredStocks = stockData
+            .filter((s: any) => majorExchanges.has(s.exchangeShortName) && s.type === 'stock')
+            .map((s: any) => ({
+                ticker: s.symbol,
+                name: s.name,
+                price: s.price,
+                country: 'US',
+                asset_class: 'EQUITY',
+                sector: 'Unknown', // FMP list doesn't provide sector, must be fetched individually
+            }));
+
+        const filteredCryptos = cryptoData.slice(0, 100).map((c: any) => ({
+             ticker: c.symbol.replace('USD', ''), // FMP uses 'BTCUSD', we want 'BTC'
+             name: c.name,
+             price: c.price,
+             country: 'CRYPTO',
+             asset_class: 'CRYPTO',
+             sector: 'Cryptocurrency'
+        }));
+
+        const assets = [...filteredStocks.slice(0, 400), ...filteredCryptos];
+        console.log(`Successfully fetched ${assets.length} live assets.`);
+        return { data: { assets }, source: 'live' as DataSource };
+    } catch(e) {
+        console.error("Failed to fetch live assets, falling back to static list.", e);
+        return { data: { assets: staticData.assets }, source: 'static' as DataSource };
     }
-    
-    // --- STRATEGY 3: Fallback to large static list ---
-    console.log("All live data sources failed. Falling back to static asset list.");
-    return { data: { assets: staticData.assets }, source: 'static' as DataSource };
   },
   getAssetPriceHistory: async ({ ticker }) => {
+    // Determine if it's a crypto asset for API endpoint selection
+    const isCrypto = staticData.assets.find(a => a.ticker === ticker && a.asset_class === 'CRYPTO') || ticker.endsWith('-USD');
+    const fmpTicker = isCrypto ? `${ticker}USD` : ticker;
+    
+    // --- 1. Try FMP
     try {
-        const to = new Date().toISOString().split('T')[0];
-        const from = new Date(new Date().setFullYear(new Date().getFullYear() - 5)).toISOString().split('T')[0];
-        const url = `${FMP_BASE_URL}/historical-price-full/${ticker}?from=${from}&to=${to}&apikey=${FMP_API_KEY}`;
+        const url = `${FMP_BASE_URL}/historical-price-full/${fmpTicker}?apikey=${FMP_API_KEY}`;
         const data = await apiFetch(url);
         const history = (data?.historical || []).map((d: any) => ({ date: d.date, price: d.close })).reverse();
-        return { data: history, source: 'live' };
-    } catch (e) {
-        return { data: [], source: 'static' };
+        if (history.length > 0) return { data: history, source: 'live' };
+        throw new Error("Empty history from FMP");
+    } catch (fmpError) {
+        console.warn(`FMP failed for ${ticker} price history. Trying Alpha Vantage. Error:`, fmpError.message);
+
+        // --- 2. Try Alpha Vantage
+        try {
+            const avFunction = isCrypto ? 'DIGITAL_CURRENCY_DAILY' : 'TIME_SERIES_DAILY_ADJUSTED';
+            const avSymbol = isCrypto ? ticker : ticker;
+            const url = `${AV_BASE_URL}?function=${avFunction}&symbol=${avSymbol}${isCrypto ? '&market=USD' : ''}&outputsize=full&apikey=${ALPHA_VANTAGE_API_KEY}`;
+            const data = await apiFetch(url);
+            
+            const timeSeriesKey = Object.keys(data).find(k => k.includes('Time Series') || k.includes('Digital Currency'));
+            if (!timeSeriesKey || !data[timeSeriesKey]) throw new Error("Invalid AV response format");
+
+            const timeSeries = data[timeSeriesKey];
+            const history = Object.entries(timeSeries).map(([date, values]: [string, any]) => ({
+                date,
+                price: parseFloat(isCrypto ? values['4a. close (USD)'] : values['4. close'])
+            })).reverse();
+
+            if (history.length > 0) return { data: history, source: 'live' };
+            throw new Error("Empty history from Alpha Vantage");
+        } catch(avError) {
+             console.error(`Alpha Vantage also failed for ${ticker} price history. Giving up. Error:`, avError.message);
+             return { data: [], source: 'static' };
+        }
     }
   },
   getAssetPriceSummary: async ({ ticker }) => {
-     try {
-        const url = `${FMP_BASE_URL}/quote/${ticker}?apikey=${FMP_API_KEY}`;
+      const isCrypto = staticData.assets.find(a => a.ticker === ticker && a.asset_class === 'CRYPTO') || ticker.endsWith('-USD');
+      const fmpTicker = isCrypto ? `${ticker}USD` : ticker;
+
+      // --- 1. Try FMP
+      try {
+        const url = `${FMP_BASE_URL}/quote/${fmpTicker}?apikey=${FMP_API_KEY}`;
         const data = await apiFetch(url);
         const quote = data[0] || {};
+        if (!quote.price) throw new Error("No price in FMP response");
         return { data: { open: quote.open ?? 0, close: quote.price ?? 0, high: quote.dayHigh ?? 0, low: quote.dayLow ?? 0, volume: formatVolume(quote.volume) }, source: 'live' };
-     } catch (e) {
-        return { data: { open: 0, close: 0, high: 0, low: 0, volume: 'N/A' }, source: 'static' };
-     }
+      } catch(fmpError) {
+        console.warn(`FMP failed for ${ticker} price summary. Trying Alpha Vantage. Error:`, fmpError.message);
+
+        // --- 2. Try Alpha Vantage
+        try {
+            const avFunction = isCrypto ? 'CURRENCY_EXCHANGE_RATE' : 'GLOBAL_QUOTE';
+            let url = `${AV_BASE_URL}?function=${avFunction}&symbol=${ticker}&apikey=${ALPHA_VANTAGE_API_KEY}`;
+            if (isCrypto) {
+                url = `${AV_BASE_URL}?function=CURRENCY_EXCHANGE_RATE&from_currency=${ticker}&to_currency=USD&apikey=${ALPHA_VANTAGE_API_KEY}`;
+            }
+
+            const data = await apiFetch(url);
+            const quote = data['Global Quote'] || data['Realtime Currency Exchange Rate'];
+            if (!quote) throw new Error("Invalid AV response format");
+            
+            const price = parseFloat(quote['05. price'] || quote['5. Exchange Rate']);
+            if (!price) throw new Error("No price in AV response");
+            
+            return {
+                data: {
+                    open: parseFloat(quote['02. open']),
+                    close: price,
+                    high: parseFloat(quote['03. high']),
+                    low: parseFloat(quote['04. low']),
+                    volume: formatVolume(quote['06. volume'] || '0')
+                },
+                source: 'live'
+            };
+        } catch(avError) {
+            console.error(`Alpha Vantage also failed for ${ticker} price summary. Giving up. Error:`, avError.message);
+            return { data: { open: 0, close: 0, high: 0, low: 0, volume: 'N/A' }, source: 'static' };
+        }
+      }
   },
   getFinancialRatios: async ({ ticker }) => {
      try {
-        const url = `${FMP_BASE_URL}/quote/${ticker}?apikey=${FMP_API_KEY}`;
-        const data = await apiFetch(url);
-        const quote = data[0] || {};
+        const [quoteData, profileData] = await Promise.all([
+            apiFetch(`${FMP_BASE_URL}/quote/${ticker}?apikey=${FMP_API_KEY}`),
+            apiFetch(`${FMP_BASE_URL}/profile/${ticker}?apikey=${FMP_API_KEY}`)
+        ]);
+        const quote = quoteData[0] || {};
+        const profile = profileData[0] || {};
 
         const ratios = [
             { label: 'P/E (TTM)', value: quote.pe?.toFixed(2) ?? 'N/A' },
             { label: 'Market Cap', value: formatLargeNumber(quote.marketCap) },
             { label: 'EPS (TTM)', value: quote.eps?.toFixed(2) ?? 'N/A' },
-            { label: 'Dividend Yield', value: quote.dividendYield ? `${(quote.dividendYield * 100).toFixed(2)}%` : 'N/A' },
-            // These are not on the /quote endpoint, so we hardcode N/A to prevent calls to restricted endpoints
-            { label: 'P/B', value: 'N/A' }, 
-            { label: 'Beta', value: 'N/A' },
+            { label: 'Beta', value: profile.beta?.toFixed(2) ?? 'N/A' },
+            { label: 'Dividend Yield', value: 'N/A' },
+            { label: 'P/B', value: 'N/A' },
         ];
         return { data: ratios, source: 'live' };
      } catch (e) {
-         console.error(`Error in getFinancialRatios for ${ticker}:`, e);
-         return { data: [
-            { label: 'P/E (TTM)', value: 'N/A' }, { label: 'Market Cap', value: 'N/A' },
-            { label: 'EPS (TTM)', value: 'N/A' }, { label: 'Dividend Yield', value: 'N/A' },
-            { label: 'P/B', value: 'N/A' }, { label: 'Beta', value: 'N/A' },
-         ], source: 'static' };
+         return { data: [], source: 'static' };
      }
   },
   getFinancialsSnapshot: async ({ ticker }) => {
-      // REWRITTEN: This function now uses the /quote endpoint to avoid restricted access errors.
-      // It returns less data but is much more reliable.
       try {
-          const url = `${FMP_BASE_URL}/quote/${ticker}?apikey=${FMP_API_KEY}`;
-          const data = await apiFetch(url);
-          const quote = data[0] || {};
-          const financials = {
-              income: [
-                  { metric: 'Revenue', value: 'N/A' }, // Not on /quote
-                  { metric: 'Net Income', value: 'N/A' }, // Not on /quote
-              ],
-              balanceSheet: [
-                   { metric: 'Shares Outstanding', value: formatLargeNumber(quote.sharesOutstanding) },
-                   { metric: 'Market Cap', value: formatLargeNumber(quote.marketCap) },
-              ],
+          const quote = (await apiFetch(`${FMP_BASE_URL}/quote/${ticker}?apikey=${FMP_API_KEY}`))[0] || {};
+          return { data: {
+              income: [],
+              balanceSheet: [{ metric: 'Shares Outstanding', value: formatLargeNumber(quote.sharesOutstanding) }],
               cashFlow: [],
               asOf: new Date(quote.timestamp * 1000).toLocaleDateString() || 'N/A',
-          };
-          return { data: financials, source: 'live' };
+          }, source: 'live' };
       } catch (e) {
           return { data: { income: [], balanceSheet: [], cashFlow: [], asOf: 'N/A' }, source: 'static' };
       }
   },
-  getCompanyProfile: async ({ ticker }) => {
-      // REWRITTEN: This avoids the /profile endpoint which often requires a paid plan.
-      // We return a generic message. The beta value is not available on basic endpoints.
-      return { data: { description: 'Detailed company profile requires a premium data plan. Use the AI Co-Pilot to ask for a business summary.', beta: 1.0 }, source: 'static' };
-  },
-  getDividendInfo: async ({ ticker }) => {
-      // REWRITTEN: This function no longer calls /ratios-ttm, avoiding 403 errors.
-      // It now relies on the more basic /quote endpoint.
-      try {
-          const quoteUrl = `${FMP_BASE_URL}/quote/${ticker}?apikey=${FMP_API_KEY}`;
-          const quoteData = await apiFetch(quoteUrl);
-          const quote = quoteData[0] || {};
-          
-          if (!quote.dividendYield) return { data: null, source: 'live' };
-          
-          // We can't get the last *payment date* from /quote, so we'll use a placeholder
-          // and derive the amount from the yield and price.
-          const amountPerShare = quote.lastDiv || (quote.price * quote.dividendYield / 4); // Estimate quarterly
-
-          return { 
-              data: { 
-                  ticker, 
-                  yield: quote.dividendYield, 
-                  amountPerShare: amountPerShare, 
-                  payDate: "N/A", // Not available from this endpoint
-                  projectedAnnualIncome: 0 
-              }, 
-              source: 'live' 
-          };
-      } catch (e) {
-          return { data: null, source: 'static' };
-      }
-  },
-  getEsgData: async () => {
-      // REWRITTEN: Avoids the /esg-score endpoint which is often restricted.
-      return { data: null, source: 'static' };
-  },
+  // --- Other handlers with simple static fallbacks ---
+  getCompanyProfile: async () => ({ data: { description: 'Live company profile data is unavailable. Use AI for a summary.', beta: 1.0 }, source: 'static' }),
+  getDividendInfo: async () => ({ data: null, source: 'static' }),
+  getEsgData: async () => ({ data: null, source: 'static' }),
   getMarketNews: async () => {
     try {
         const url = `https://newsapi.org/v2/top-headlines?category=business&language=en&pageSize=5&apiKey=${NEWS_API_KEY}`;
@@ -290,11 +256,7 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
     }
   },
   getRiskFreeRate: async () => ({ data: 0.042, source: 'static' }),
-  getFxRate: async ({ from, to }) => {
-      const fromRate = staticData.fxRates[from] || 1;
-      const toRate = staticData.fxRates[to] || 1;
-      return { data: toRate / fromRate, source: 'static' };
-  },
+  getFxRate: async ({ from, to }) => ({ data: (staticData.fxRates[to] || 1) / (staticData.fxRates[from] || 1), source: 'static' }),
   startChatStream: async ({ message, history }) => {
     if (!GEMINI_API_KEY) throw new Error("Missing GEMINI_API_KEY");
     const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
@@ -310,19 +272,17 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
     });
     return stream;
   },
-  // --- Portfolio Service Stubs ---
+  // --- Portfolio Service Stubs (These would be complex microservices in a real app) ---
   generateAndOptimizePortfolio: async () => {
       const weights = [{ ticker: 'AAPL', name: 'Apple Inc.', country: 'US', sector: 'Technology', asset_class: 'EQUITY', weight: 0.5 }, { ticker: 'MSFT', name: 'Microsoft Corp.', country: 'US', sector: 'Technology', asset_class: 'EQUITY', weight: 0.5 }];
-      const result = { weights, returns: 0.15, volatility: 0.22, sharpeRatio: 0.65 };
-      return { simulations: [], bestSharpe: result, averageWeights: weights, source: 'static' };
+      return { simulations: [], bestSharpe: { weights, returns: 0.15, volatility: 0.22, sharpeRatio: 0.65 }, averageWeights: weights, source: 'static' };
   },
   runBacktest: async() => ({ dates: [], portfolioValues: [], benchmarkValues: [], totalReturn: 0.1, benchmarkReturn: 0.08, maxDrawdown: 0.15 }),
   getCorrelationMatrix: async ({ assets }) => ({ assets: assets.map(a => a.ticker), matrix: [[1, 0.5], [0.5, 1]], source: 'static' }),
   getRiskReturnContribution: async ({ portfolio }) => portfolio.weights.map(a => ({ ticker: a.ticker, returnContribution: a.weight / portfolio.weights.length, riskContribution: a.weight / portfolio.weights.length })),
   calculatePortfolioMetricsFromCustomWeights: async({ assets, weights }) => {
       const portfolioAssets = assets.map(a => ({ ...a, weight: (weights[a.ticker] || 0) / 100 }));
-      const result = { weights: portfolioAssets, returns: 0.12, volatility: 0.18, sharpeRatio: 0.55 };
-      return { ...result, source: 'static' };
+      return { weights: portfolioAssets, returns: 0.12, volatility: 0.18, sharpeRatio: 0.55, source: 'static' };
   },
   getOptionChain: async () => ({ data: [], source: 'static' }),
   runScenarioAnalysis: async () => ({ originalReturn: 0.1, scenarioReturn: 0.05, impactPercentage: -0.5 }),
@@ -352,12 +312,14 @@ serve(async (req) => {
   } catch (error) {
     console.error(`Error processing request: ${error.message}`);
     const status = (error as any).status || 500;
-    let errorMessage = error.message;
+    let errorMessage = "An internal server error occurred.";
 
-    // Provide a more user-friendly error message for API key issues
-    if (status === 401 || status === 403) {
-        errorMessage = "Your API key is either invalid or does not have permission for this request. Please check your API key in the Supabase secrets and ensure your data plan supports this feature.";
+    if (error.message.includes('API key')) {
+        errorMessage = "An API key is invalid or missing. Please check your Supabase function secrets.";
+    } else if (status >= 400 && status < 500) {
+        errorMessage = `A data provider returned an error: ${error.message}`;
     }
+    
     return new Response(JSON.stringify({ error: errorMessage }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status });
   }
 });
