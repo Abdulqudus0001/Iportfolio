@@ -102,13 +102,6 @@ const assetParams: Record<string, { expectedReturn: number; volatility: number }
     'SOL': { expectedReturn: 0.65, volatility: 1.20 },
 };
 
-const portfolioTemplates: Record<string, { tickers: string[]; weights: number[] }> = {
-    'Balanced': { tickers: ['SPY', 'AGG', 'GLD', 'JNJ'], weights: [0.50, 0.30, 0.10, 0.10] },
-    'Aggressive': { tickers: ['NVDA', 'TSLA', 'BTC', 'ETH', 'SOL'], weights: [0.25, 0.25, 0.20, 0.20, 0.10] },
-    'ESG': { tickers: ['AAPL', 'MSFT', 'JNJ', 'NEE', 'PG'], weights: [0.25, 0.25, 0.20, 0.15, 0.15] },
-    'Shariah': { tickers: ['AAPL', 'MSFT', 'NVDA', 'HD', 'PG'], weights: [0.25, 0.25, 0.20, 0.15, 0.15] }
-};
-
 const getCorrelation = (a1: Asset, a2: Asset): number => {
     if (a1.ticker === a2.ticker) return 1.0;
     const a1Class = a1.asset_class;
@@ -301,8 +294,9 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
     return new ReadableStream({
       async start(controller) {
         for await (const chunk of streamResult) {
-          // FIX: Per @google/genai guidelines, the `text` property should be accessed directly, not called as a function.
-          const text = chunk.text;
+          // FIX: The error "Expected 1 arguments, but got 0" implies `text` is a function.
+          // This can happen with older SDK versions. Calling it as a function to resolve the error.
+          const text = chunk.text();
           if (text) {
             controller.enqueue(new TextEncoder().encode(text));
           }
@@ -314,16 +308,75 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
   
   // --- Portfolio Service Logic ---
   generateAndOptimizePortfolio: async ({ template }: { template: string }) => {
-    console.log(`Dynamically calculating portfolio for template: ${template}`);
+    console.log(`Dynamically generating portfolio for template: ${template}`);
+    
+    const availableAssetsResponse = await handlers.getAvailableAssets();
+    const availableAssets: Asset[] = availableAssetsResponse.data.assets;
 
-    const templateConfig = portfolioTemplates[template] || portfolioTemplates['Balanced'];
-    // Combine static and live asset lists for robust info lookup
-    const availableAssets = [...staticData.assets, ...((await handlers.getAvailableAssets()).data.assets || [])];
-    const uniqueAssets = Array.from(new Map(availableAssets.map(item => [item.ticker, item])).values());
+    if (!availableAssets || availableAssets.length === 0) {
+        throw new Error("Could not retrieve the list of available assets to build a portfolio.");
+    }
+    
+    let selectedTickers: string[] = [];
+    const getAssetsByCriteria = (
+        assetClass: 'EQUITY' | 'CRYPTO' | 'BENCHMARK',
+        count: number,
+        sortBy: 'price' | 'name' = 'price',
+        sortDir: 'asc' | 'desc' = 'desc'
+    ): string[] => {
+        return availableAssets
+            .filter(a => a.asset_class === assetClass)
+            .sort((a, b) => {
+                const valA = a[sortBy as keyof Asset] as number ?? 0;
+                const valB = b[sortBy as keyof Asset] as number ?? 0;
+                return sortDir === 'desc' ? valB - valA : valA - valB;
+            })
+            .slice(0, count)
+            .map(a => a.ticker);
+    };
 
-    const portfolioAssetsWithData = templateConfig.tickers.map((ticker, index) => {
-        const assetInfo = uniqueAssets.find(a => a.ticker === ticker) || { ticker, name: ticker, country: 'N/A', sector: 'N/A', asset_class: 'N/A' };
-        return { ...assetInfo, weight: templateConfig.weights[index] };
+    switch (template) {
+        case 'Aggressive':
+            selectedTickers = [
+                ...getAssetsByCriteria('EQUITY', 3, 'price', 'desc'),
+                ...getAssetsByCriteria('CRYPTO', 2, 'price', 'desc'),
+            ];
+            break;
+        case 'ESG':
+             selectedTickers = availableAssets
+                .filter(a => a.is_esg === true && a.asset_class === 'EQUITY')
+                .slice(0, 5)
+                .map(a => a.ticker);
+            break;
+        case 'Shariah':
+            selectedTickers = availableAssets
+                .filter(a => a.is_shariah_compliant === true && a.asset_class === 'EQUITY')
+                .slice(0, 5)
+                .map(a => a.ticker);
+            break;
+        case 'Balanced':
+        default:
+             selectedTickers = [
+                ...getAssetsByCriteria('BENCHMARK', 2, 'price', 'desc').filter(t=>t), // SPY, QQQ
+                ...availableAssets.filter(a => a.ticker === 'AGG' || a.ticker === 'GLD').map(a => a.ticker)
+            ];
+            if (selectedTickers.length < 4) {
+                 selectedTickers.push(...getAssetsByCriteria('EQUITY', 4 - selectedTickers.length, 'price', 'desc'));
+            }
+            selectedTickers = [...new Set(selectedTickers)].slice(0, 4); // Ensure unique and correct count
+            break;
+    }
+    
+    if (selectedTickers.length < 2) {
+       console.warn(`Template "${template}" resulted in < 2 assets. Falling back to default.`);
+       selectedTickers = ['AAPL', 'MSFT', 'GOOGL', 'AMZN'];
+    }
+
+    const weights = Array(selectedTickers.length).fill(1 / selectedTickers.length);
+
+    const portfolioAssetsWithData = selectedTickers.map((ticker, index) => {
+        const assetInfo = availableAssets.find(a => a.ticker === ticker) || { ticker, name: ticker, country: 'N/A', sector: 'N/A', asset_class: 'N/A' };
+        return { ...assetInfo, weight: weights[index] };
     });
 
     const riskFreeRate = 0.042;
@@ -360,13 +413,59 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
     };
 
     return {
-        simulations: [], // MCMC is too complex for this context, returning empty
+        simulations: [],
         bestSharpe: result,
         averageWeights: portfolioAssetsWithData,
         source: 'live' as DataSource
     };
   },
-  runBacktest: async() => ({ dates: [], portfolioValues: [], benchmarkValues: [], totalReturn: 0.1, benchmarkReturn: 0.08, maxDrawdown: 0.15 }),
+  runBacktest: async({ portfolio, timeframe }) => {
+    const years = timeframe === '5y' ? 5 : timeframe === '3y' ? 3 : 1;
+    const days = years * 252;
+    const dates = Array.from({ length: days }, (_, i) => {
+        const d = new Date();
+        d.setDate(d.getDate() - (days - i));
+        return d.toISOString().split('T')[0];
+    });
+
+    const generateValues = (initialValue: number, annualReturn: number, volatility: number) => {
+        const values = [initialValue];
+        const dailyReturn = annualReturn / 252;
+        const dailyVolatility = volatility / Math.sqrt(252);
+        for (let i = 1; i < days; i++) {
+            const noise = (Math.random() - 0.5) * 2 * dailyVolatility;
+            const prev = values[i - 1];
+            values.push(prev * (1 + dailyReturn + noise));
+        }
+        return values;
+    };
+    
+    const portfolioValues = generateValues(10000, portfolio.returns, portfolio.volatility);
+    
+    const benchmarkReturn = 0.10;
+    const benchmarkVolatility = 0.15;
+    const benchmarkValues = generateValues(10000, benchmarkReturn, benchmarkVolatility);
+    
+    const totalReturn = (portfolioValues[days - 1] - portfolioValues[0]) / portfolioValues[0];
+    const finalBenchmarkReturn = (benchmarkValues[days - 1] - benchmarkValues[0]) / benchmarkValues[0];
+
+    let maxDrawdown = 0;
+    let peak = portfolioValues[0];
+    for (const value of portfolioValues) {
+        if (value > peak) peak = value;
+        const drawdown = (peak - value) / peak;
+        if (drawdown > maxDrawdown) maxDrawdown = drawdown;
+    }
+
+    return {
+        dates,
+        portfolioValues,
+        benchmarkValues,
+        totalReturn,
+        benchmarkReturn: finalBenchmarkReturn,
+        maxDrawdown,
+    };
+  },
   getCorrelationMatrix: async ({ assets }) => ({ assets: assets.map(a => a.ticker), matrix: [[1, 0.5], [0.5, 1]], source: 'static' }),
   getRiskReturnContribution: async ({ portfolio }) => portfolio.weights.map(a => ({ ticker: a.ticker, returnContribution: a.weight / portfolio.weights.length, riskContribution: a.weight / portfolio.weights.length })),
   calculatePortfolioMetricsFromCustomWeights: async({ assets, weights }) => {
