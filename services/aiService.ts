@@ -1,54 +1,40 @@
 import { supabase } from './supabaseClient';
 
 export const aiService = {
-  startChatStream: async (message: string, history: any[], token: string) => {
+  startChatStream: async function* (message: string, history: any[]) {
     try {
-        const { data, error } = await supabase.functions.invoke('secure-api-gateway', {
-            headers: { Authorization: `Bearer ${token}` },
-            body: {
-                action: 'chat-ai',
-                payload: { message, history }
-            }
-        });
+      const { data, error } = await supabase.functions.invoke('api-proxy', {
+        body: { command: 'startChatStream', payload: { message, history } },
+        responseType: 'stream',
+      });
 
-        if (error) {
-            throw new Error(`Function invocation failed: ${error.message}`);
-        }
-        
-        if (!data || !data.body) {
-            throw new Error("No response body from function.");
-        }
+      if (error) {
+        console.error("Error invoking stream function:", error);
+        yield { text: "Error connecting to the AI assistant." };
+        return;
+      }
+      
+      if (!data?.body) {
+        yield { text: "Received an empty response from the AI assistant." };
+        return;
+      }
 
-        const reader = data.body.getReader();
-        const decoder = new TextDecoder();
+      const reader = data.body.getReader();
+      const decoder = new TextDecoder();
+      
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value, { stream: true });
+        yield { text: chunk };
+      }
 
-        return (async function* () {
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                
-                const chunk = decoder.decode(value);
-                const lines = chunk.split('\n\n');
-                
-                for (const line of lines) {
-                    if (line.startsWith('data: ')) {
-                        try {
-                            const json = JSON.parse(line.substring(6));
-                            yield json;
-                        } catch(e) {
-                             console.error("Failed to parse stream chunk JSON:", e, "Chunk:", line);
-                        }
-                    }
-                }
-            }
-        })();
-
-    } catch (error) {
-        console.error("AI Service stream error:", error);
-        throw new Error("Failed to get response from AI service.");
+    } catch (err) {
+      console.error("Error in chat stream:", err);
+      yield { text: "Sorry, I'm having trouble connecting to the AI service right now." };
     }
   },
   resetChat: () => {
-    // No longer needed as the backend is stateless per request
+    // No longer needed with this architecture
   }
 };

@@ -55,29 +55,28 @@ iPortfolio is built with a modern, robust, and scalable tech stack.
     - **Provider**: Google AI
     - **Model**: Gemini 2.5 Flash via the `@google/genai` SDK.
 - **Financial Data Sources**:
-    - A resilient **aggregator service** (`marketDataService.ts`) pulls data from multiple redundant APIs to ensure high availability.
-    - **Providers**: Financial Modeling Prep, Alpha Vantage, Twelve Data, EOD Historical Data, NewsAPI.
+    - All external API calls are securely handled by the `api-proxy` Supabase Edge Function.
 - **State Management**:
     - React Context API for managing global state like user authentication, portfolio data, and theme.
 
 ### Architectural Highlights
 
-- **Service Aggregator Pattern**: The `marketDataService.ts` acts as a single point of entry for all financial data. It intelligently queries multiple APIs, implements fallback logic if one provider fails, and uses a caching layer (`cacheService.ts`) to minimize redundant requests and handle API rate limits gracefully.
+- **Secure API Gateway**: The `api-proxy` Edge Function acts as a secure backend, managing all API keys and handling calls to financial data providers and the Google Gemini API. This keeps all secrets off the client-side.
 - **Component-Based UI**: The interface is built with modular, reusable React components located in the `components/` directory.
 - **Feature Gating via Context**: User Tiers (`UserTierContext.ts`) are managed globally, allowing components to conditionally render features based on the user's subscription level.
 
 ---
 
-## 🚀 Getting Started
+## 🚀 Getting Started with Supabase CLI
 
-Follow these instructions to get a local copy of iPortfolio up and running.
+Follow these instructions to deploy the application and its backend functions using the Supabase CLI.
 
 ### Prerequisites
 
-- Node.js (v18 or later)
-- npm or yarn
+- [Supabase CLI](https://supabase.com/docs/guides/cli) installed on your machine.
+- A Supabase account and a new project created.
 
-### Installation & Setup
+### Deployment Steps
 
 1.  **Clone the repository:**
     ```bash
@@ -85,33 +84,36 @@ Follow these instructions to get a local copy of iPortfolio up and running.
     cd iportfolio
     ```
 
-2.  **Install dependencies:**
+2.  **Log in to the Supabase CLI:**
+    This command will open a browser window for you to authorize your account.
     ```bash
-    npm install
+    supabase login
     ```
 
-3.  **Set up Environment Variables:**
-    The application requires API keys to function. Create a `.env` file in the root of your project by copying the example:
-    ```bash
-    cp .env.example .env
-    ```
-    Now, open the `.env` file and add your API key:
-    ```
-    # Get your key from Google AI Studio: https://aistudio.google.com/
-    API_KEY="YOUR_GOOGLE_GEMINI_API_KEY"
-    ```
-    > **Note**: Other financial data API keys are currently hardcoded in their respective service files for demo purposes (e.g., in `services/financialDataService.ts`). In a production environment, these should also be moved to environment variables.
+3.  **Set Up Secrets in Supabase Dashboard:**
+    Before deploying, you must add your secret API keys to your Supabase project.
+    - Go to your project's dashboard on `supabase.com`.
+    - Navigate to **Project Settings > Edge Functions**.
+    - Add a new secret for each of the following:
+        - `FMP_API_KEY`: Your key from Financial Modeling Prep.
+        - `NEWS_API_KEY`: Your key from NewsAPI.
+        - `GEMINI_API_KEY`: Your key from Google AI Studio.
 
-4.  **Set up Supabase:**
-    - Create a new project on [Supabase](https://supabase.com/).
-    - In the SQL Editor, create the necessary tables for `portfolios` and `shared_portfolios`. You can use the schema implied by the code in `context/SavedPortfoliosContext.tsx` and `services/portfolioService.ts`.
-    - Find your Project URL and anon key in `Project Settings > API` and update the `services/supabaseClient.ts` file.
-
-5.  **Run the development server:**
+4.  **Link Your Local Project to Supabase:**
+    Replace `YOUR_PROJECT_REF` with the Reference ID found in your Supabase project's settings (Settings > General).
     ```bash
-    npm start
+    supabase link --project-ref YOUR_PROJECT_REF
     ```
-    Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+    You will be prompted to enter your database password.
+
+5.  **Deploy the Edge Function:**
+    This command bundles and deploys the `api-proxy` function, which handles all backend logic.
+    ```bash
+    supabase functions deploy api-proxy --no-verify-jwt
+    ```
+
+6.  **Done!**
+    Your application's backend is now live. You can open the `index.html` file or serve the static files to use the app.
 
 ---
 
@@ -128,18 +130,10 @@ Follow these instructions to get a local copy of iPortfolio up and running.
 ├── hooks/              # Custom React hooks
 ├── services/           # API clients and data-fetching logic
 ├── supabase/           # Supabase edge functions
+│   └── functions/
+│       └── api-proxy/  # The main backend Edge Function
 ├── App.tsx             # Main application component and routing
 ├── types.ts            # Central TypeScript type definitions
 ├── index.html          # Main HTML file
 └── index.tsx           # Application entry point
 ```
-
----
-
-## 💡 Future Improvements
-
-- **Real-time Data**: Integrate WebSockets for live price updates.
-- **Testing**: Implement a robust testing suite with Jest and React Testing Library.
-- **Advanced Transaction Tracking**: Build a full transaction ledger with cost basis and P/L tracking.
-- **Enhanced Visualizations**: Add more interactive charts and heatmaps for data analysis.
-- **CI/CD Pipeline**: Set up automated workflows for testing and deployment.

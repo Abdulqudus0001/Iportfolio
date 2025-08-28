@@ -1,8 +1,4 @@
 import { FinancialRatio, Financials, PriceDataPoint, PriceSummary, Asset, DividendInfo, EsgData, OptionContract, Currency, DataSource } from '../types';
-import { staticData } from './staticDataService';
-import { financialDataService } from './financialDataService';
-import { cacheService } from './cacheService';
-import { newsApiClient } from './newsApiClient';
 import { supabase } from './supabaseClient';
 
 export interface ServiceResponse<T> {
@@ -10,145 +6,66 @@ export interface ServiceResponse<T> {
   source: DataSource;
 }
 
-const invokeGateway = async <T>(payload: object): Promise<ServiceResponse<T>> => {
-    try {
-        const { data, error } = await supabase.functions.invoke('secure-api-gateway', {
-            body: { action: 'get-market-data', payload }
-        });
-        if (error) throw error;
-        return data;
-    } catch (error) {
-        console.error(`Error invoking gateway for payload`, payload, error.message || error);
-        // Fallback to static data on gateway failure
-        const staticFallback = getStaticFallback(payload);
-        return { data: staticFallback as T, source: 'static' };
+async function invokeApiProxy<T>(command: string, payload?: object): Promise<ServiceResponse<T>> {
+    const { data, error } = await supabase.functions.invoke('api-proxy', {
+      body: { command, payload: payload || {} },
+    });
+    if (error) {
+        console.error(`Error invoking api-proxy for command "${command}":`, error);
+        throw error;
     }
+    return data;
 }
-
-const getStaticFallback = (payload: any): any => {
-    switch(payload.dataType) {
-        case 'price-history':
-            return staticData.priceHistories[payload.ticker] || [];
-        // Add other static fallbacks as needed
-        default:
-            return null;
-    }
-}
-
-const formatVolume = (vol: number) => {
-    if (!vol) return 'N/A';
-    if (vol > 1_000_000) return `${(vol / 1_000_000).toFixed(2)}M`;
-    if (vol > 1_000) return `${(vol / 1_000).toFixed(2)}K`;
-    return vol.toString();
-};
 
 export const marketDataService = {
     getAvailableAssets: async (): Promise<Asset[]> => {
-        try {
-            const { data, error } = await supabase.functions.invoke('secure-api-gateway', {
-                body: { action: 'get-available-assets' }
-            });
-
-            if (error) throw error;
-            
-            // The gateway response is { data: Asset[], source: 'live' | 'cache' }
-            const responseData: Asset[] = data.data;
-
-            // Add static cryptos, as the backend only returns equities from FMP
-            const cryptoAssets = staticData.cryptos.map((c: any) => ({
-                ticker: c.symbol, name: c.name, country: 'CRYPTO' as const, sector: 'Cryptocurrency', asset_class: 'CRYPTO' as const, price: c.price
-            }));
-            const combinedAssets = [...responseData, ...cryptoAssets];
-
-            const tickerSet = new Set();
-            const uniqueAssets = combinedAssets.filter(asset => {
-                if (!asset || !asset.ticker) return false;
-                if (tickerSet.has(asset.ticker)) return false;
-                tickerSet.add(asset.ticker);
-                return true;
-            });
-            
-            return uniqueAssets;
-
-        } catch (error) {
-            console.error("Failed to fetch available assets from gateway, using static data", error.message || error);
-            // Fallback logic
-            const staticAssets = staticData.stocks.map((s: any) => ({
-                ticker: s.symbol,
-                name: s.companyName,
-                country: s.country as Asset['country'],
-                sector: s.sector,
-                asset_class: 'EQUITY' as const,
-                price: s.price,
-                is_esg: s.isEsg,
-                is_shariah_compliant: s.isShariahCompliant,
-            }));
-             const cryptoAssets = staticData.cryptos.map((c: any) => ({
-                ticker: c.symbol, name: c.name, country: 'CRYPTO' as const, sector: 'Cryptocurrency', asset_class: 'CRYPTO' as const, price: c.price
-            }));
-            return [...staticAssets, ...cryptoAssets];
-        }
+        const response = await invokeApiProxy<{ assets: Asset[] }>('getAvailableAssets');
+        return response.data.assets;
     },
 
     getAssetPriceHistory: (ticker: string, interval: string): Promise<ServiceResponse<PriceDataPoint[]>> => {
-        // This is a key function to proxy
-        return invokeGateway({ dataType: 'price-history', ticker, interval });
+        return invokeApiProxy<PriceDataPoint[]>('getAssetPriceHistory', { ticker, interval });
     },
 
-    // These other functions remain client-side for now, using the cache/static pattern
-    // They can be progressively moved to the gateway as needed.
     getAssetPriceSummary: (ticker: string): Promise<ServiceResponse<PriceSummary>> => {
-        const staticFallback = staticData.quotes[ticker] ? {
-            open: staticData.quotes[ticker].open, close: staticData.quotes[ticker].price, high: staticData.quotes[ticker].high, low: staticData.quotes[ticker].low, volume: formatVolume(staticData.quotes[ticker].volume)
-        } : { open: 0, close: 0, high: 0, low: 0, volume: 'N/A' };
-        return cacheService.withCache(`price_summary_${ticker}`, () => financialDataService.getAssetPriceSummary(ticker), staticFallback);
+        return invokeApiProxy<PriceSummary>('getAssetPriceSummary', { ticker });
     },
 
     getFinancialRatios: (ticker: string): Promise<ServiceResponse<FinancialRatio[]>> => {
-        const staticFallback = staticData.ratios[ticker] ? [
-            { label: 'P/E (TTM)', value: staticData.ratios[ticker].priceEarningsRatioTTM?.toFixed(2) ?? 'N/A' },
-            { label: 'P/B', value: staticData.ratios[ticker].priceToBookRatioTTM?.toFixed(2) ?? 'N/A' },
-            { label: 'Dividend Yield', value: staticData.ratios[ticker].dividendYieldTTM ? `${(staticData.ratios[ticker].dividendYieldTTM * 100).toFixed(2)}%` : 'N/A' },
-        ] : [];
-        return cacheService.withCache(`ratios_${ticker}`, () => financialDataService.getFinancialRatios(ticker), staticFallback);
+        return invokeApiProxy<FinancialRatio[]>('getFinancialRatios', { ticker });
     },
 
     getFinancialsSnapshot: (ticker: string): Promise<ServiceResponse<Financials>> => {
-        const staticFallback = {
-            income: [{ metric: "Revenue", value: 'N/A'}, { metric: "Net Income", value: 'N/A'}],
-            balanceSheet: [], cashFlow: [], asOf: 'TTM'
-        };
-        return cacheService.withCache(`financials_${ticker}`, () => financialDataService.getFinancialsSnapshot(ticker), staticFallback);
+        return invokeApiProxy<Financials>('getFinancialsSnapshot', { ticker });
     },
     
     getCompanyProfile: (ticker: string): Promise<ServiceResponse<{description: string, beta: number}>> => {
-        const staticFallback = { description: 'No description available.', beta: 1.0 };
-        return cacheService.withCache(`profile_${ticker}`, () => financialDataService.getCompanyProfile(ticker), staticFallback);
-    },
-
-    getRiskFreeRate: (): Promise<number> => Promise.resolve(0.042),
-
-    getFxRate: async (from: Currency, to: Currency): Promise<number> => {
-        if (from === to) return 1.0;
-        const fromRate = staticData.fxRates[from] || 1;
-        const toRate = staticData.fxRates[to] || 1;
-        return toRate / fromRate;
+        return invokeApiProxy<{description: string, beta: number}>('getCompanyProfile', { ticker });
     },
 
     getMarketNews: (): Promise<ServiceResponse<any[]>> => {
-        const staticFallback = staticData.news.map(n => ({ ...n, summary: n.text, source: n.site }));
-        return cacheService.withCache('market_news', () => newsApiClient.getMarketNews(), staticFallback);
+        return invokeApiProxy<any[]>('getMarketNews');
     },
 
     getDividendInfo: (ticker: string): Promise<ServiceResponse<DividendInfo | null>> => {
-        return cacheService.withCache(`dividend_${ticker}`, () => financialDataService.getDividendInfo(ticker), null);
+        return invokeApiProxy<DividendInfo | null>('getDividendInfo', { ticker });
     },
 
     getEsgData: (ticker: string): Promise<ServiceResponse<EsgData | null>> => {
-        return cacheService.withCache(`esg_${ticker}`, () => financialDataService.getEsgData(ticker), null);
+        return invokeApiProxy<EsgData | null>('getEsgData', { ticker });
     },
 
     getOptionChain: (ticker: string, date: string): Promise<ServiceResponse<OptionContract[]>> => {
-        return cacheService.withCache(`options_${ticker}_${date}`, () => financialDataService.getOptionChain(ticker, date), []);
+        return invokeApiProxy<OptionContract[]>('getOptionChain', { ticker, date });
+    },
+    
+    getRiskFreeRate: (): Promise<number> => {
+        // This is a static value, can remain on client or be moved. For consistency, let's proxy it.
+        return invokeApiProxy<number>('getRiskFreeRate').then(res => res.data);
+    },
+
+    getFxRate: (from: Currency, to: Currency): Promise<number> => {
+        // Also proxying for consistency.
+        return invokeApiProxy<number>('getFxRate', { from, to }).then(res => res.data);
     },
 };

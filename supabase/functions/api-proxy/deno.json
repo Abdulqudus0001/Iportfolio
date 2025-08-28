@@ -1,0 +1,5 @@
+{
+  "imports": {
+    "supabase-functions": "https://deno.land/x/supabase/functions.ts"
+  }
+}

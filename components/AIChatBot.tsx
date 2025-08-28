@@ -28,7 +28,7 @@ const AIChatBot: React.FC<AIChatBotProps> = ({ isOpen, onClose, initialPrompt, s
     const [messages, setMessages] = useState<Message[]>([]);
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
-    const { session, user } = useAuth();
+    const { user } = useAuth();
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const isMounted = useRef(false);
@@ -90,15 +90,12 @@ const AIChatBot: React.FC<AIChatBotProps> = ({ isOpen, onClose, initialPrompt, s
         setMessages(prev => [...prev, { role: 'model', content: '' } as Message]);
 
         try {
-            const token = session?.access_token;
-            if (!token) throw new Error("Authentication token not found.");
-            
             const history = currentMessages.map(m => ({
                 role: m.role,
                 parts: [{ text: m.content }]
             }));
 
-            const stream = await aiService.startChatStream(messageContent, history, token);
+            const stream = aiService.startChatStream(messageContent, history);
             let fullResponse = '';
 
             for await (const chunk of stream) {
