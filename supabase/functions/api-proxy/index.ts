@@ -1,6 +1,5 @@
-// Deno types reference to resolve Deno namespace errors for local development environments.
-// FIX: Removed invalid Deno types reference and added a declaration for the Deno global object
-// to resolve TypeScript errors in non-Deno environments.
+// Declaring the Deno global object resolves TypeScript errors in non-Deno environments
+// and is a robust way to handle type checking for Supabase Edge Functions.
 declare const Deno: any;
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
