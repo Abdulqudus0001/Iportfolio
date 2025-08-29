@@ -1,6 +1,5 @@
 import { Asset, OptimizationResult, MCMCResult, PortfolioAsset, PortfolioTemplate, PriceDataPoint, CorrelationData, ContributionData, ConstraintOptions, BacktestResult, Scenario, ScenarioResult, FactorExposures, VaRResult, TaxLossHarvestingResult, OptimizationModel, BlackLittermanView, SavedPortfolio, Currency, DataSource } from '../types';
 import { supabase } from './supabaseClient';
-import { cacheService, TTL } from './cacheService';
 import { ServiceResponse } from './marketDataService';
 
 async function invokeApiProxy<T>(command: string, payload?: object): Promise<T> {
@@ -27,19 +26,8 @@ export const portfolioService = {
     return invokeApiProxy('runBlackLittermanOptimization', { assets, views, currency });
   },
 
-  // FIX: Refactored to correctly use withCache by passing the data type as T and unwrapping the response in the fetcher.
   getCorrelationMatrix(assets: Asset[], currency: Currency): Promise<ServiceResponse<CorrelationData>> {
-      const assetKeys = assets.map(a => a.ticker).sort().join(',');
-      const cacheKey = `correlation-matrix-${assetKeys}-${currency}`;
-      const staticFallback: CorrelationData = { assets: [], matrix: [] };
-      
-      return cacheService.withCache<CorrelationData>(
-          cacheKey,
-          // FIX: The invokeApiProxy in this file returns the data directly, not wrapped in a response object with a .data property.
-          async () => invokeApiProxy<CorrelationData>('getCorrelationMatrix', { assets, currency }),
-          staticFallback,
-          TTL.ONE_HOUR
-      );
+      return invokeApiProxy('getCorrelationMatrix', { assets, currency });
   },
 
   getRiskReturnContribution(portfolio: OptimizationResult): Promise<ContributionData[]> {

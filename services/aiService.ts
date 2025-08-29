@@ -5,7 +5,8 @@ export const aiService = {
     try {
       const { data, error } = await supabase.functions.invoke('api-proxy', {
         body: { command: 'startChatStream', payload: { message, history } },
-        responseType: 'stream',
+        // FIX: 'responseType' is not a valid property for Supabase function invocation.
+        // The function correctly handles the stream from the response body.
       });
 
       if (error) {

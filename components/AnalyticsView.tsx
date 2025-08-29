@@ -10,7 +10,6 @@ import RiskReturnContributionChart from './analytics/RiskReturnContributionChart
 import ScenarioAnalysis from './analytics/ScenarioAnalysis';
 import FactorAnalysisView from './analytics/FactorAnalysisView';
 import VaRCard from './analytics/VaRCard';
-import TaxLossHarvestingView from './TaxLossHarvestingView';
 import Button from './ui/Button';
 import Tooltip from './ui/Tooltip';
 import InfoIcon from './ui/InfoIcon';
@@ -28,7 +27,6 @@ const AnalyticsView: React.FC<AnalyticsViewProps> = ({ openAiChat }) => {
     const { tier } = useUserTier();
     const { optimizationResult } = usePortfolio();
     const [activeTab, setActiveTab] = useState<AnalyticsTab>('composition');
-    const [isTaxModalOpen, setIsTaxModalOpen] = useState(false);
     const [isOptionsModalOpen, setIsOptionsModalOpen] = useState(false);
 
     const isProOrHigher = tier === UserTier.Professional || tier === UserTier.Advanced;
@@ -124,7 +122,6 @@ const AnalyticsView: React.FC<AnalyticsViewProps> = ({ openAiChat }) => {
 
     return (
         <div className="space-y-6">
-            {isTaxModalOpen && <TaxLossHarvestingView portfolio={optimizationResult!} onClose={() => setIsTaxModalOpen(false)} />}
             {isAdvanced && isOptionsModalOpen && <OptionsStrategyModeler portfolio={optimizationResult!} onClose={() => setIsOptionsModalOpen(false)} />}
             <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
                  <div className="xl:col-span-2 space-y-6">
@@ -135,9 +132,6 @@ const AnalyticsView: React.FC<AnalyticsViewProps> = ({ openAiChat }) => {
                                 <p className="text-sm text-gray-500">Analyze your portfolio's composition and risk factors.</p>
                              </div>
                              <div className="flex gap-2">
-                                <Button onClick={() => setIsTaxModalOpen(true)} variant="secondary">
-                                    Tax Harvesting
-                                </Button>
                                 {isAdvanced && (
                                   <>
                                     <Button onClick={() => setIsOptionsModalOpen(true)} variant="secondary">Options Modeler</Button>

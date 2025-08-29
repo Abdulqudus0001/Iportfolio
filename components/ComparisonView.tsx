@@ -1,14 +1,13 @@
 import React, { useState, useMemo } from 'react';
 import Card from './ui/Card';
 import { useSavedPortfolios } from '../context/SavedPortfoliosContext';
-import { COMMUNITY_PORTFOLIOS } from '../constants';
-import { SavedPortfolio, OptimizationResult } from '../types';
+import { SavedPortfolio } from '../types';
 import PortfolioHealthCheck from './analytics/PortfolioHealthCheck';
 import PortfolioCompositionCharts from './analytics/PortfolioCompositionCharts';
 
 const ComparisonView: React.FC = () => {
   const { savedPortfolios } = useSavedPortfolios();
-  const allPortfolios = useMemo(() => [...savedPortfolios, ...COMMUNITY_PORTFOLIOS], [savedPortfolios]);
+  const allPortfolios = savedPortfolios;
   
   const [portfolioAId, setPortfolioAId] = useState<string | null>(null);
   const [portfolioBId, setPortfolioBId] = useState<string | null>(null);
@@ -30,12 +29,11 @@ const ComparisonView: React.FC = () => {
         className="w-full p-2 border border-gray-300 rounded-md dark:bg-dark-card dark:border-gray-600"
       >
         <option value="">Select a portfolio...</option>
-        <optgroup label="My Portfolios">
-            {savedPortfolios.filter(p => p.id.toString() !== otherSelectedId).map(p => <option key={`my-${p.id}`} value={p.id}>{p.name}</option>)}
-        </optgroup>
-        <optgroup label="Community Portfolios">
-            {COMMUNITY_PORTFOLIOS.filter(p => p.id.toString() !== otherSelectedId).map(p => <option key={`comm-${p.id}`} value={p.id}>{p.name}</option>)}
-        </optgroup>
+        {savedPortfolios.length > 0 ? (
+            savedPortfolios.filter(p => p.id.toString() !== otherSelectedId).map(p => <option key={`my-${p.id}`} value={p.id}>{p.name}</option>)
+        ) : (
+            <option disabled>No saved portfolios</option>
+        )}
       </select>
     </div>
   );

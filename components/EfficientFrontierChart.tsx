@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ZAxis } from 'recharts';
 import { SimulationPoint, OptimizationResult } from '../types';
@@ -14,6 +13,14 @@ const EfficientFrontierChart: React.FC<EfficientFrontierChartProps> = ({ simulat
     returns: optimalPoint.returns,
     sharpeRatio: optimalPoint.sharpeRatio,
   }] : [];
+
+  if (!simulations || simulations.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-full text-center text-gray-500 dark:text-gray-400 p-8">
+        <p>Comprehensive analysis with Monte Carlo simulation is required to display the Efficient Frontier. Run this from the Portfolio Builder.</p>
+      </div>
+    );
+  }
   
   return (
     <div style={{ width: '100%', height: 400 }}>

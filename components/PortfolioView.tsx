@@ -102,26 +102,6 @@ const PortfolioView: React.FC<PortfolioViewProps> = ({ setCurrentView }) => {
             setIsDisclaimerAccepted(true);
         }
     }, []);
-
-    useEffect(() => {
-        if (template === PortfolioTemplate.Custom) {
-            setCustomWeights(prevWeights => {
-                const newWeights: Record<string, number> = {};
-                const selectedAssetTickers = new Set(selectedAssets.map(a => a.ticker));
-                for (const ticker in prevWeights) {
-                    if (selectedAssetTickers.has(ticker)) {
-                        newWeights[ticker] = prevWeights[ticker];
-                    }
-                }
-                selectedAssets.forEach(asset => {
-                    if (!(asset.ticker in newWeights)) {
-                        newWeights[asset.ticker] = 0;
-                    }
-                });
-                return newWeights;
-            });
-        }
-    }, [selectedAssets, template]);
     
     const handleAcceptDisclaimer = () => {
         sessionStorage.setItem('disclaimerAccepted', 'true');
@@ -272,21 +252,25 @@ const PortfolioView: React.FC<PortfolioViewProps> = ({ setCurrentView }) => {
 
     const handleAddAsset = (asset: Asset) => {
         if (!selectedAssets.some(a => a.ticker === asset.ticker)) {
-            setSelectedAssets([...selectedAssets, asset]);
+            const newSelectedAssets = [...selectedAssets, asset];
+            setSelectedAssets(newSelectedAssets);
             if (template === PortfolioTemplate.Custom) {
-                setCustomWeights(prev => ({
-                    ...prev,
-                    [asset.ticker]: 0 
-                }));
+                const newWeights = { ...customWeights, [asset.ticker]: 0 };
+                // Rebalance other weights if needed, or just add as 0
+                setCustomWeights(newWeights);
             }
         }
     };
-
+    
     const handleRemoveAsset = (ticker: string) => {
-        setSelectedAssets(selectedAssets.filter(asset => asset.ticker !== ticker));
-        const newWeights = {...customWeights};
-        delete newWeights[ticker];
-        setCustomWeights(newWeights);
+        setSelectedAssets(prevAssets => prevAssets.filter(asset => asset.ticker !== ticker));
+        if (template === PortfolioTemplate.Custom) {
+            setCustomWeights(prevWeights => {
+                const newWeights = { ...prevWeights };
+                delete newWeights[ticker];
+                return newWeights;
+            });
+        }
     };
 
     const handleCalculateCustomMetrics = () => requestAnalysis(() => {

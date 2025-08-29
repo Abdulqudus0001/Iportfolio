@@ -11,6 +11,18 @@ interface SavedPortfoliosContextType {
   loading: boolean;
 }
 
+// Type for the data being inserted into the 'Portfolio' table
+type PortfolioInsertData = {
+    name: string;
+    result: OptimizationResult;
+    mcmc_result: Omit<MCMCResult, 'simulations'> | null;
+    user_id: string;
+    notes?: string;
+    transactions?: Transaction[];
+    currency?: Currency;
+};
+
+
 const SavedPortfoliosContext = createContext<SavedPortfoliosContextType | undefined>(undefined);
 
 export const SavedPortfoliosProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
@@ -78,27 +90,27 @@ export const SavedPortfoliosProvider: React.FC<{ children: ReactNode }> = ({ chi
         return;
     }
     try {
-        let mcmcResultToSave = null;
+        let mcmcResultToSave: Omit<MCMCResult, 'simulations'> | null = null;
         if (mcmcResult) {
             // THE FIX: Create a copy of the MCMC result but exclude the massive simulations array
             // This prevents the browser from freezing when serializing the large JSON payload for the API request.
-            mcmcResultToSave = {
-                ...mcmcResult,
-                simulations: [], 
-            };
+            const { simulations, ...rest } = mcmcResult;
+            mcmcResultToSave = rest;
         }
+
+        const portfolioData: PortfolioInsertData = {
+            name, 
+            result, 
+            mcmc_result: mcmcResultToSave, 
+            user_id: user.id,
+            notes,
+            transactions,
+            currency,
+        };
 
         const { error } = await supabase
             .from('Portfolio')
-            .insert({ 
-                name, 
-                result, 
-                mcmc_result: mcmcResultToSave, 
-                user_id: user.id,
-                notes,
-                transactions,
-                currency,
-            } as any);
+            .insert(portfolioData);
 
       if (error) throw error;
       

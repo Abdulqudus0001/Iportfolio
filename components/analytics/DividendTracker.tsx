@@ -28,7 +28,7 @@ const DividendTracker: React.FC<DividendTrackerProps> = ({ portfolio }) => {
           const dividendInfo = res.value.data;
           const assetWeight = dividendPayers[index].weight;
           const assetValue = totalPortfolioValue * assetWeight;
-          const projectedIncome = assetValue * dividendInfo.yield;
+          const projectedIncome = assetValue * (dividendInfo.yield ?? 0);
           
           dividendInfo.projectedAnnualIncome = projectedIncome;
           totalIncome += projectedIncome;
@@ -51,7 +51,7 @@ const DividendTracker: React.FC<DividendTrackerProps> = ({ portfolio }) => {
     <div className="space-y-4 mt-4">
         <div className="p-4 bg-blue-50 dark:bg-blue-900/50 rounded-lg text-center">
             <h4 className="text-sm font-medium text-blue-700 dark:text-blue-200">Projected Annual Dividend Income</h4>
-            <p className="text-2xl font-bold text-blue-600 dark:text-blue-300">${totalAnnualIncome.toFixed(2)}</p>
+            <p className="text-2xl font-bold text-blue-600 dark:text-blue-300">${(totalAnnualIncome ?? 0).toFixed(2)}</p>
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Based on a ${totalPortfolioValue.toLocaleString()} portfolio value.</p>
         </div>
         <div className="overflow-x-auto">
@@ -69,10 +69,10 @@ const DividendTracker: React.FC<DividendTrackerProps> = ({ portfolio }) => {
                     {dividendData.map(d => (
                         <tr key={d.ticker}>
                             <td className="px-4 py-2 font-medium">{d.ticker}</td>
-                            <td className="px-4 py-2 text-right font-semibold text-green-600">{(d.yield * 100).toFixed(2)}%</td>
-                            <td className="px-4 py-2 text-right">${d.amountPerShare.toFixed(2)}</td>
+                            <td className="px-4 py-2 text-right font-semibold text-green-600">{(((d.yield ?? 0) * 100).toFixed(2))}%</td>
+                            <td className="px-4 py-2 text-right">${(d.amountPerShare ?? 0).toFixed(2)}</td>
                             <td className="px-4 py-2 text-left">{new Date(d.payDate).toLocaleDateString()}</td>
-                            <td className="px-4 py-2 text-right font-semibold">${d.projectedAnnualIncome.toFixed(2)}</td>
+                            <td className="px-4 py-2 text-right font-semibold">${(d.projectedAnnualIncome ?? 0).toFixed(2)}</td>
                         </tr>
                     ))}
                 </tbody>
