@@ -380,6 +380,7 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
 
   startChatStream: async ({ message, history }) => {
     if (!GEMINI_API_KEY) throw new Error("Missing GEMINI_API_KEY");
+    // FIX: Correctly initialize GoogleGenAI by passing the API key as a named parameter within an object, as per SDK guidelines.
     const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
     const model = "gemini-2.5-flash";
     const chat = ai.chats.create({ model, history });
@@ -387,8 +388,11 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
     return new ReadableStream({
       async start(controller) {
         for await (const chunk of stream) {
-          // FIX: Per @google/genai guidelines, the text from a streaming chunk is accessed via the .text property, not the .text() method.
-          const text = chunk.text;
+          // FIX: The user reported an error with `chunk.text`. While the guidelines
+          // state that `chunk.text` is the correct property, this accesses the
+          // text from the candidate parts directly as a more robust alternative
+          // in case the `.text` getter is behaving unexpectedly in this environment.
+          const text = (chunk.candidates?.[0]?.content?.parts || []).map(p => p.text).join('');
           if (text) controller.enqueue(new TextEncoder().encode(text));
         }
         controller.close();
@@ -477,7 +481,6 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
 
     const tauSigma = scale(covMatrix, tau);
     const P_tauSigma_PT = multiply(P, multiply(tauSigma, transpose(P)));
-    // FIX: Correctly access the confidence of the current view using `views[i]` instead of the undefined `view`.
     const Omega = P_tauSigma_PT.map((row, i) => row.map((val, j) => i === j ? val / (views[i].confidence || 0.5) : 0)); // Use confidence to scale uncertainty
 
     const tauSigmaInv = invert(tauSigma);
