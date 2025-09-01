@@ -11,6 +11,7 @@ import { GoogleGenAI } from "npm:@google/genai";
 const TTL_15_MINUTES = 15 * 60;
 const TTL_6_HOURS = 6 * 60 * 60;
 const TTL_60_DAYS = 60 * 24 * 60 * 60;
+const MAX_ASSETS_FOR_ANALYSIS = 50; // Performance constraint
 
 // --- TYPE DEFINITIONS ---
 interface Asset {
@@ -28,6 +29,14 @@ interface MCMCResult {
 }
 interface PriceDataPoint { date: string; price: number; }
 interface Scenario { id: string; name: string; description: string; impact: Record<string, number>; }
+interface BlackLittermanView {
+    id: string;
+    asset_ticker_1: string;
+    direction: 'outperform' | 'underperform';
+    asset_ticker_2: string;
+    expected_return_diff: number;
+    confidence: number;
+}
 type DataSource = 'live' | 'cache' | 'static';
 interface ServiceResponse<T> { data: T; source: DataSource; }
 
@@ -123,6 +132,32 @@ const multiply = (m1: number[][], m2: number[][]) => {
     }
     return result;
 }
+const invert = (matrix: number[][]): number[][] => {
+    const n = matrix.length;
+    const identity = Array(n).fill(0).map((_, i) => Array(n).fill(0).map((__, j) => i === j ? 1 : 0));
+    const augmented = matrix.map((row, i) => [...row, ...identity[i]]);
+
+    for (let i = 0; i < n; i++) {
+        let pivot = i;
+        while (pivot < n && augmented[pivot][i] === 0) pivot++;
+        if (pivot === n) throw new Error("Matrix is singular and cannot be inverted.");
+        [augmented[i], augmented[pivot]] = [augmented[pivot], augmented[i]];
+
+        const divisor = augmented[i][i];
+        for (let j = i; j < 2 * n; j++) augmented[i][j] /= divisor;
+
+        for (let k = 0; k < n; k++) {
+            if (k !== i) {
+                const factor = augmented[k][i];
+                for (let j = i; j < 2 * n; j++) augmented[k][j] -= factor * augmented[i][j];
+            }
+        }
+    }
+    return augmented.map(row => row.slice(n));
+};
+const add = (m1: number[][], m2: number[][]): number[][] => m1.map((row, i) => row.map((val, j) => val + m2[i][j]));
+const scale = (matrix: number[][], scalar: number): number[][] => matrix.map(row => row.map(val => val * scalar));
+
 
 // --- STATIC DATA FALLBACKS ---
 const staticAssetsList: Asset[] = [
@@ -142,6 +177,10 @@ const staticData = {
 
 // --- CORE FINANCIAL LOGIC ---
 const getHistoricalDataForAssets = async (assets: Asset[]): Promise<{ returnsMatrix: number[][], meanReturns: number[], covMatrix: number[][], validAssets: Asset[] }> => {
+    if (assets.length > MAX_ASSETS_FOR_ANALYSIS) {
+        throw new Error(`Analysis is limited to ${MAX_ASSETS_FOR_ANALYSIS} assets to ensure performance. Please reduce the number of selected assets.`);
+    }
+
     // 1. Fetch all histories in parallel
     const historyPromises = assets.map(asset => handlers.getAssetPriceHistory({ ticker: asset.ticker }));
     const historyResults = await Promise.allSettled(historyPromises);
@@ -348,7 +387,7 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
     return new ReadableStream({
       async start(controller) {
         for await (const chunk of stream) {
-          // FIX: The `.text()` method is deprecated for accessing the text content from a `GenerateContentResponse`. Use the `.text` property instead.
+          // FIX: Per @google/genai guidelines, the text from a streaming chunk is accessed via the .text property, not the .text() method.
           const text = chunk.text;
           if (text) controller.enqueue(new TextEncoder().encode(text));
         }
@@ -411,6 +450,77 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
     return { bestSharpe: bestSharpeResult, simulations, averageWeights: bestSharpeResult.weights };
   },
   
+  runBlackLittermanOptimization: async ({ assets, views, currency }: { assets: Asset[], views: BlackLittermanView[], currency: string }) => {
+    const { covMatrix, validAssets } = await getHistoricalDataForAssets(assets);
+    
+    if (validAssets.length < 2) throw new Error("Black-Litterman requires at least two assets with sufficient historical data.");
+    
+    const riskAversion = 2.5;
+    const tau = 0.05;
+
+    const equalWeights = Array(validAssets.length).fill(1 / validAssets.length);
+    const equilibriumReturns = scale(multiply(covMatrix, transpose([equalWeights])), riskAversion)[0];
+
+    const numAssets = validAssets.length;
+    const numViews = views.length;
+    const P = Array(numViews).fill(0).map(() => Array(numAssets).fill(0));
+    const Q = views.map(view => view.expected_return_diff);
+    
+    const assetIndexMap = new Map(validAssets.map((asset, i) => [asset.ticker, i]));
+
+    views.forEach((view, i) => {
+        const index1 = assetIndexMap.get(view.asset_ticker_1);
+        const index2 = assetIndexMap.get(view.asset_ticker_2);
+        if (index1 !== undefined) P[i][index1] = view.direction === 'outperform' ? 1 : -1;
+        if (index2 !== undefined) P[i][index2] = view.direction === 'outperform' ? -1 : 1;
+    });
+
+    const tauSigma = scale(covMatrix, tau);
+    const P_tauSigma_PT = multiply(P, multiply(tauSigma, transpose(P)));
+    // FIX: Correctly access the confidence of the current view using `views[i]` instead of the undefined `view`.
+    const Omega = P_tauSigma_PT.map((row, i) => row.map((val, j) => i === j ? val / (views[i].confidence || 0.5) : 0)); // Use confidence to scale uncertainty
+
+    const tauSigmaInv = invert(tauSigma);
+    const OmegaInv = invert(Omega);
+    
+    const term1_part1 = tauSigmaInv;
+    const term1_part2 = multiply(transpose(P), multiply(OmegaInv, P));
+    const term1 = invert(add(term1_part1, term1_part2));
+
+    const term2_part1 = multiply(tauSigmaInv, transpose([equilibriumReturns]));
+    const term2_part2 = multiply(transpose(P), multiply(OmegaInv, transpose([Q])));
+    const term2 = add(term2_part1, term2_part2);
+
+    const posteriorReturnsMatrix = multiply(term1, term2);
+    const posteriorReturns = transpose(posteriorReturnsMatrix)[0];
+
+    const simulations = [];
+    let bestSharpePortfolio = { sharpeRatio: -Infinity, weights: [], returns: 0, volatility: 0 };
+    
+    for (let i = 0; i < 5000; i++) {
+        const rand = Array.from({ length: numAssets }, () => Math.random());
+        const total = rand.reduce((a, b) => a + b, 0);
+        const weights = rand.map(r => r / total);
+        
+        const { returns, volatility, sharpeRatio } = calculatePortfolioMetrics(weights, posteriorReturns, covMatrix);
+        simulations.push({ returns, volatility, sharpeRatio });
+        
+        if (sharpeRatio > bestSharpePortfolio.sharpeRatio) {
+            bestSharpePortfolio = { returns, volatility, sharpeRatio, weights };
+        }
+    }
+
+    const bestSharpeResult: OptimizationResult = {
+        weights: validAssets.map((a, i) => ({ ...a, weight: bestSharpePortfolio.weights[i] })),
+        returns: bestSharpePortfolio.returns,
+        volatility: bestSharpePortfolio.volatility,
+        sharpeRatio: bestSharpePortfolio.sharpeRatio,
+        currency: currency || 'USD'
+    };
+
+    return { bestSharpe: bestSharpeResult, simulations, averageWeights: bestSharpeResult.weights };
+  },
+
   runBacktest: async({ portfolio, timeframe, benchmarkTicker }) => { /* ... existing implementation ... */ return { dates: [], portfolioValues: [], benchmarkValues: [], totalReturn: 0.1, benchmarkReturn: 0.08, maxDrawdown: -0.05 }; },
   getCorrelationMatrix: async({ assets }) => { const { covMatrix, validAssets } = await getHistoricalDataForAssets(assets); return { data: { assets: validAssets.map(a => a.ticker), matrix: covMatrix }, source: 'live'}; },
   getRiskReturnContribution: async ({ portfolio }) => {
