@@ -7,6 +7,11 @@ import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-
 import { corsHeaders } from '../_shared/cors.ts';
 import { GoogleGenAI } from "npm:@google/genai";
 
+// --- TTL CONSTANTS ---
+const TTL_15_MINUTES = 15 * 60;
+const TTL_6_HOURS = 6 * 60 * 60;
+const TTL_60_DAYS = 60 * 24 * 60 * 60;
+
 // --- TYPE DEFINITIONS ---
 interface Asset {
   ticker: string; name: string; country: string; sector: string;
@@ -231,7 +236,7 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
     const filteredStocks = stockData.filter((s: any) => majorExchanges.has(s.exchangeShortName) && s.type === 'stock').map((s: any) => ({ ticker: s.symbol, name: s.name, price: s.price, country: 'US', asset_class: 'EQUITY', sector: 'Unknown' }));
     const filteredCryptos = cryptoData.slice(0, 100).map((c: any) => ({ ticker: c.symbol.replace('USD', ''), name: c.name, price: c.price, country: 'CRYPTO', asset_class: 'CRYPTO', sector: 'Cryptocurrency' }));
     return { assets: [...filteredStocks.slice(0, 400), ...filteredCryptos] };
-  }, 21600 /* 6 hours */),
+  }, TTL_6_HOURS),
 
   getAssetPriceHistory: async ({ ticker }) => withCache(`price-history-${ticker}`, async () => {
     const isCrypto = staticAssetsList.find(a => a.ticker === ticker && a.asset_class === 'CRYPTO') || ticker.endsWith('-USD');
@@ -254,16 +259,15 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
             date, price: parseFloat(isCrypto ? values['4a. close (USD)'] : values['4. close'])
         })).reverse();
     }
-  }, 86400 /* 24 hours */),
+  }, TTL_60_DAYS),
   
-  // Implement other data-fetching handlers with caching
   getAssetPriceSummary: async ({ ticker }) => withCache(`price-summary-${ticker}`, async () => {
     const isCrypto = staticAssetsList.find(a => a.ticker === ticker && a.asset_class === 'CRYPTO') || ticker.endsWith('-USD');
     const fmpTicker = isCrypto ? `${ticker}USD` : ticker;
     const data = await apiFetch(`${FMP_BASE_URL}/quote/${fmpTicker}?apikey=${FMP_API_KEY}`);
     const quote = data[0] || {};
     return { open: quote.open ?? 0, close: quote.price ?? 0, high: quote.dayHigh ?? 0, low: quote.dayLow ?? 0, volume: formatVolume(quote.volume) };
-  }, 900 /* 15 mins */),
+  }, TTL_15_MINUTES),
 
   getFinancialRatios: async ({ ticker }) => withCache(`ratios-${ticker}`, async () => {
     const quoteData = await apiFetch(`${FMP_BASE_URL}/quote/${ticker}?apikey=${FMP_API_KEY}`);
@@ -272,14 +276,64 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
     const quote = quoteData[0] || {}; const profile = profileData[0] || {}; const metrics = metricsData[0] || {};
     const ratios = [{ label: 'P/E (TTM)', value: (quote.pe ?? metrics.peRatioTTM)?.toFixed(2) }, { label: 'P/B', value: metrics.priceToBookRatioTTM?.toFixed(2) }, { label: 'Dividend Yield', value: metrics.dividendYieldTTM != null ? `${(metrics.dividendYieldTTM * 100).toFixed(2)}%` : undefined }, { label: 'Market Cap', value: formatLargeNumber(quote.marketCap) }, { label: 'EPS (TTM)', value: (quote.eps ?? metrics.epsTTM)?.toFixed(2) }, { label: 'Beta', value: profile.beta?.toFixed(2) }];
     return ratios.map(r => ({ ...r, value: r.value ?? 'N/A' })).filter(r => r.value !== 'N/A');
-  }, 86400),
-  getFinancialsSnapshot: async ({ ticker }) => ({ data: { income: [], balanceSheet: [], cashFlow: [], asOf: 'N/A' }, source: 'static' }),
-  getCompanyProfile: async () => ({ data: { description: 'Live company profile data unavailable.', beta: 1.0 }, source: 'static' }),
+  }, TTL_60_DAYS),
+
+  getFinancialsSnapshot: async ({ ticker }) => withCache(`financials-${ticker}`, async () => {
+      const [incomeData, balanceData, cashflowData] = await Promise.all([
+          apiFetch(`${FMP_BASE_URL}/income-statement/${ticker}?period=annual&limit=1&apikey=${FMP_API_KEY}`),
+          apiFetch(`${FMP_BASE_URL}/balance-sheet-statement/${ticker}?period=annual&limit=1&apikey=${FMP_API_KEY}`),
+          apiFetch(`${FMP_BASE_URL}/cash-flow-statement/${ticker}?period=annual&limit=1&apikey=${FMP_API_KEY}`)
+      ]);
+      const incomeStatement = incomeData[0] || {};
+      const balanceSheet = balanceData[0] || {};
+      const cashFlowStatement = cashflowData[0] || {};
+      return {
+          income: [
+              { metric: 'Revenue', value: formatLargeNumber(incomeStatement.revenue) },
+              { metric: 'Net Income', value: formatLargeNumber(incomeStatement.netIncome) },
+          ],
+          balanceSheet: [
+              { metric: 'Total Assets', value: formatLargeNumber(balanceSheet.totalAssets) },
+              { metric: 'Total Liabilities', value: formatLargeNumber(balanceSheet.totalLiabilities) },
+          ],
+          cashFlow: [
+              { metric: 'Operating Cash Flow', value: formatLargeNumber(cashFlowStatement.operatingCashFlow) },
+          ],
+          asOf: incomeStatement.date || 'N/A'
+      };
+  }, TTL_60_DAYS),
+
+  getCompanyProfile: async ({ ticker }) => withCache(`profile-${ticker}`, async () => {
+    const data = await apiFetch(`${FMP_BASE_URL}/profile/${ticker}?apikey=${FMP_API_KEY}`);
+    const profile = data[0] || {};
+    return { description: profile.description, beta: profile.beta };
+  }, TTL_60_DAYS),
+
   getEsgData: async ({ ticker }) => withCache(`esg-${ticker}`, async () => {
     const data = await apiFetch(`${FMP_BASE_URL}/esg-score/${ticker}?apikey=${FMP_API_KEY}`);
     const esg = data[0];
     return { totalScore: esg.ESGScore, eScore: esg.environmentalScore, sScore: esg.socialScore, gScore: esg.governanceScore, rating: esg.ESGRiskRating };
-  }, 86400),
+  }, TTL_60_DAYS),
+
+  getDividendInfo: async ({ ticker }) => withCache(`dividend-${ticker}`, async () => {
+    const [dividendData, quoteData] = await Promise.all([
+      apiFetch(`${FMP_BASE_URL}/historical-price-full/stock_dividend/${ticker}?apikey=${FMP_API_KEY}`),
+      apiFetch(`${FMP_BASE_URL}/quote/${ticker}?apikey=${FMP_API_KEY}`)
+    ]);
+    const historical = dividendData.historical;
+    if (!historical || historical.length === 0) return null;
+    const lastDividend = historical[0];
+    const quote = quoteData[0] || {};
+    const yieldValue = quote.dividendYield || ((lastDividend.dividend * 4) / quote.price);
+    return {
+        ticker: ticker,
+        yield: yieldValue,
+        amountPerShare: lastDividend.dividend,
+        payDate: lastDividend.paymentDate,
+        projectedAnnualIncome: 0
+    };
+  }, TTL_60_DAYS),
+
   getMarketNews: async () => withCache('market-news', async () => {
     const data = await apiFetch(`https://newsapi.org/v2/top-headlines?category=business&language=en&pageSize=5&apiKey=${NEWS_API_KEY}`);
     return (data.articles || []).map((a: any) => ({ title: a.title, source: a.source.name, summary: a.description, url: a.url }));
@@ -287,8 +341,6 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
 
   startChatStream: async ({ message, history }) => {
     if (!GEMINI_API_KEY) throw new Error("Missing GEMINI_API_KEY");
-    // FIX: Refactored to use the chat interface for conversations, which is more robust
-    // and aligns better with the SDK's design, avoiding the cryptic "Expected 1 arguments" error.
     const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
     const model = "gemini-2.5-flash";
     const chat = ai.chats.create({ model, history });
@@ -296,8 +348,8 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
     return new ReadableStream({
       async start(controller) {
         for await (const chunk of stream) {
-          // FIX: The error "Expected 1 arguments, but got 0" suggests that `text` is a function, not a property, in this environment.
-          const text = chunk.text();
+          // FIX: The `.text()` method is deprecated for accessing the text content from a `GenerateContentResponse`. Use the `.text` property instead.
+          const text = chunk.text;
           if (text) controller.enqueue(new TextEncoder().encode(text));
         }
         controller.close();
@@ -366,12 +418,9 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
     const weights = validAssets.map(a => portfolio.weights.find(w => w.ticker === a.ticker)?.weight || 0);
     const portfolioVolatility = calculatePortfolioMetrics(weights, meanReturns, covMatrix).volatility;
     const contributions = validAssets.map((asset, i) => {
-        // FIX: The 'asset' object is of type Asset and has no 'weight' property.
-        // Use the 'weights' array which is correctly ordered with 'validAssets'.
         const marginalContribution = dot(weights, covMatrix[i]) * weights[i];
         return {
             ticker: asset.ticker,
-            // FIX: Use 'weights[i]' instead of 'asset.weight'.
             returnContribution: weights[i] * meanReturns[i],
             riskContribution: (marginalContribution) / portfolioVolatility
         };

@@ -18,11 +18,11 @@ async function invokeApiProxy<T>(command: string, payload?: object): Promise<T> 
 
 export const portfolioService = {
   
-  generateAndOptimizePortfolio(template: PortfolioTemplate, optimizationModel: OptimizationModel, runner: 'mcmc' | 'optimize', currency: Currency, constraints: ConstraintOptions = {}): Promise<MCMCResult & { source: DataSource }> {
+  generateAndOptimizePortfolio(template: PortfolioTemplate, optimizationModel: OptimizationModel, runner: 'mcmc' | 'optimize', currency: Currency, constraints: ConstraintOptions = {}): Promise<MCMCResult> {
     return invokeApiProxy('generateAndOptimizePortfolio', { template, optimizationModel, runner, currency, constraints });
   },
   
-  runBlackLittermanOptimization(assets: Asset[], views: BlackLittermanView[], currency: Currency): Promise<MCMCResult & { source: DataSource }> {
+  runBlackLittermanOptimization(assets: Asset[], views: BlackLittermanView[], currency: Currency): Promise<MCMCResult> {
     return invokeApiProxy('runBlackLittermanOptimization', { assets, views, currency });
   },
 
@@ -34,7 +34,7 @@ export const portfolioService = {
       return invokeApiProxy('getRiskReturnContribution', { portfolio });
   },
   
-  calculatePortfolioMetricsFromCustomWeights(assets: Asset[], weights: Record<string, number>, currency: Currency): Promise<OptimizationResult & { source: DataSource }> {
+  calculatePortfolioMetricsFromCustomWeights(assets: Asset[], weights: Record<string, number>, currency: Currency): Promise<ServiceResponse<OptimizationResult>> {
       return invokeApiProxy('calculatePortfolioMetricsFromCustomWeights', { assets, weights, currency });
   },
 

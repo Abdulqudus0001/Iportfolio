@@ -20,7 +20,6 @@ import BlackLittermanViewsUI from './portfolio/BlackLittermanViewsUI';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../services/supabaseClient';
 import { getCurrencySymbol } from '../utils';
-import WarningBanner from './ui/WarningBanner';
 
 interface PortfolioViewProps {
     setCurrentView: (view: View) => void;
@@ -81,7 +80,6 @@ const PortfolioView: React.FC<PortfolioViewProps> = ({ setCurrentView }) => {
     const [activeTab, setActiveTab] = useState<'results' | 'backtest'>('results');
     const [constraints, setConstraints] = useState<ConstraintOptions>({});
     const fileInputRef = useRef<HTMLInputElement>(null);
-    const [analysisSource, setAnalysisSource] = useState<DataSource>('live');
     const [error, setError] = useState<string | null>(null);
 
     const [isDisclaimerAccepted, setIsDisclaimerAccepted] = useState(false);
@@ -290,8 +288,7 @@ const PortfolioView: React.FC<PortfolioViewProps> = ({ setCurrentView }) => {
 
             try {
                 const result = await portfolioService.calculatePortfolioMetricsFromCustomWeights(selectedAssets, customWeights, currency);
-                setOptimizationResult(result);
-                setAnalysisSource(result.source || 'static');
+                setOptimizationResult(result.data);
             } catch (error) {
                 console.error("Custom calculation error:", error);
                 const errorMessage = error instanceof Error ? error.message : String(error);
@@ -337,7 +334,6 @@ const PortfolioView: React.FC<PortfolioViewProps> = ({ setCurrentView }) => {
                 
                 setSelectedAssets(result.bestSharpe.weights);
                 setOptimizationResult(result.bestSharpe);
-                setAnalysisSource(result.source || 'static');
                 if (runner === 'mcmc' || optimizationModel === OptimizationModel.BlackLitterman) {
                     setMcmcResult(result);
                 }
@@ -537,16 +533,6 @@ const PortfolioView: React.FC<PortfolioViewProps> = ({ setCurrentView }) => {
                     {error && <Card><p className="text-red-500 text-center py-4">{error}</p></Card>}
                     {optimizationResult ? (
                         <Card title="Analysis Output">
-                             {analysisSource !== 'live' && 
-                                <WarningBanner 
-                                    source={analysisSource}
-                                    message={
-                                        analysisSource === 'static'
-                                        ? "The connection to live market data is temporarily busy. This analysis was performed using a saved snapshot for demonstration."
-                                        : "This analysis was performed using recently cached data. Run the analysis again for the latest live data."
-                                    }
-                                />
-                            }
                              <div className="flex justify-end gap-2 mb-4">
                                 <Button variant="secondary" onClick={handleDownloadCSV} className="text-xs">Download CSV</Button>
                                 <Button variant="secondary" onClick={handleSharePortfolio} className="text-xs" disabled={!currentPortfolio}>Share</Button>

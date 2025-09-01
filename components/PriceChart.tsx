@@ -5,8 +5,6 @@ import { PriceDataPoint } from '../types';
 import Loader from './ui/Loader';
 import { useTheme } from '../context/ThemeContext';
 
-type DataSource = 'live' | 'cache' | 'static';
-
 interface PriceChartProps {
   ticker: string;
 }
@@ -16,7 +14,6 @@ const PriceChart: React.FC<PriceChartProps> = ({ ticker }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { theme } = useTheme();
-  const [source, setSource] = useState<DataSource>('live');
 
   const colors = {
     light: { grid: '#ccc', text: '#212529', line: '#0D47A1' },
@@ -34,12 +31,10 @@ const PriceChart: React.FC<PriceChartProps> = ({ ticker }) => {
             throw new Error("No historical data available for this asset.");
         }
         setData(response.data);
-        setSource(response.source);
       })
       .catch((err) => {
         console.error(err);
         setError(`Could not load price data for ${ticker}.`);
-        setSource('static');
       })
       .finally(() => setLoading(false));
   }, [ticker]);
@@ -50,11 +45,6 @@ const PriceChart: React.FC<PriceChartProps> = ({ ticker }) => {
 
   return (
     <div className="relative" style={{ width: '100%', height: 300 }}>
-        {source !== 'live' && (
-            <div className="absolute top-2 right-2 text-xs bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200 px-2 py-1 rounded-full z-10">
-                {source === 'static' ? 'Demo Data' : 'Cached Data'}
-            </div>
-        )}
         <ResponsiveContainer>
             <LineChart
             data={data}

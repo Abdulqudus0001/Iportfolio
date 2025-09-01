@@ -11,7 +11,6 @@ import Tooltip from './ui/Tooltip';
 import InfoIcon from './ui/InfoIcon';
 import Button from './ui/Button';
 import EsgDataView from './analytics/EsgDataView';
-import WarningBanner from './ui/WarningBanner';
 import { useDebounce } from '../hooks/useDebounce';
 
 const ratioDefinitions: Record<string, string> = {
@@ -68,7 +67,6 @@ const AssetBrowser: React.FC<AssetBrowserProps> = ({ openAiChat }) => {
   const [error, setError] = useState<string | null>(null);
   const [sortConfig, setSortConfig] = useState<{ key: SortKey, direction: 'asc' | 'desc' }>({ key: 'ticker', direction: 'asc' });
   const [isAnalyzingShariah, setIsAnalyzingShariah] = useState(false);
-  const [dataStatus, setDataStatus] = useState<DataSource>('live');
 
 
   const isProOrHigher = tier === UserTier.Professional || tier === UserTier.Advanced;
@@ -98,12 +96,6 @@ const AssetBrowser: React.FC<AssetBrowserProps> = ({ openAiChat }) => {
         marketDataService.getFinancialsSnapshot(selectedAsset.ticker),
         marketDataService.getAssetPriceSummary(selectedAsset.ticker)
       ]).then(([ratiosResult, financialsResult, summaryResult]) => {
-        const sources: DataSource[] = [ratiosResult.source, financialsResult.source, summaryResult.source];
-        let finalStatus: DataSource = 'live';
-        if (sources.includes('static')) finalStatus = 'static';
-        else if (sources.includes('cache')) finalStatus = 'cache';
-        setDataStatus(finalStatus);
-
         const { data: ratios } = ratiosResult;
         const { data: financials } = financialsResult;
         const { data: summary } = summaryResult;
@@ -119,9 +111,7 @@ const AssetBrowser: React.FC<AssetBrowserProps> = ({ openAiChat }) => {
       }).catch(err => {
           console.error(`Failed to fetch data for ${selectedAsset.ticker}`, err);
           const defaultError = `Sorry, we couldn't load details for ${selectedAsset.ticker}. The data provider might be busy.`;
-          // The error from supabase-js has a `message` property that contains our specific error string.
           setError(err.message || defaultError);
-          setDataStatus('static'); // Assume static on error
       }).finally(() => setIsLoadingDetails(false));
     }
   }, [selectedAsset]);
@@ -327,7 +317,7 @@ const AssetBrowser: React.FC<AssetBrowserProps> = ({ openAiChat }) => {
                                     ESG Focus
                                 </span>
                                 <div className="flex items-center gap-1">
-                                    <span className={`text-xs font-semibold px-2 py-1 rounded-full ${selectedAsset.is_shariah_compliant ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-700'}`}>
+                                    <span className={`text-xs font-semibold px-2 py-1 rounded-full ${selectedAsset.is_shariah_compliant ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
                                         Shariah Compliant
                                     </span>
                                     <button onClick={handleShariahExplain} disabled={isAnalyzingShariah} className="text-xs text-blue-500 hover:underline disabled:opacity-50 disabled:cursor-wait">
@@ -339,23 +329,9 @@ const AssetBrowser: React.FC<AssetBrowserProps> = ({ openAiChat }) => {
                     </div>
                      <div className="text-right">
                          <p className="text-2xl font-bold">{assetData?.summary ? `$${assetData.summary.close.toFixed(2)}` : '...'}</p>
-                         <p className={`text-xs font-semibold ${dataStatus === 'live' ? 'text-green-500' : 'text-yellow-500'}`}>
-                            {dataStatus === 'live' ? 'Live Market Price' : "Today's Closing Price"}
-                         </p>
                      </div>
                 </div>
             </Card>
-
-            {dataStatus !== 'live' && 
-                <WarningBanner 
-                    source={dataStatus}
-                    message={
-                        dataStatus === 'static' 
-                        ? "The connection to live market data is temporarily busy. You are viewing a saved snapshot of data for demonstration."
-                        : "You are viewing recently cached data. Live data will be fetched on your next request after a short interval."
-                    }
-                />
-            }
 
             {error && (
                 <Card>

@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Asset, CorrelationData, Currency, DataSource } from '../../types';
+import { Asset, CorrelationData, Currency } from '../../types';
 import { portfolioService } from '../../services/portfolioService';
 import Loader from '../ui/Loader';
-import WarningBanner from '../ui/WarningBanner';
 
 interface CorrelationMatrixProps {
   assets: Asset[];
@@ -12,7 +11,6 @@ interface CorrelationMatrixProps {
 const CorrelationMatrix: React.FC<CorrelationMatrixProps> = ({ assets, currency }) => {
   const [correlationData, setCorrelationData] = useState<CorrelationData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [source, setSource] = useState<DataSource>('live');
 
   useEffect(() => {
     if (assets.length > 1) {
@@ -20,7 +18,6 @@ const CorrelationMatrix: React.FC<CorrelationMatrixProps> = ({ assets, currency 
       portfolioService.getCorrelationMatrix(assets, currency)
         .then(response => {
           setCorrelationData(response.data);
-          setSource(response.source);
           setLoading(false);
         })
         .catch(err => {
@@ -56,16 +53,6 @@ const CorrelationMatrix: React.FC<CorrelationMatrixProps> = ({ assets, currency 
 
   return (
     <div className="space-y-4">
-        {source !== 'live' &&
-            <WarningBanner 
-                source={source}
-                message={
-                    source === 'static'
-                    ? "Correlations are calculated using static demo data due to busy live data connections."
-                    : "Correlations are calculated using recently cached data."
-                }
-            />
-        }
         <div className="overflow-x-auto">
             <table className="min-w-full text-xs border-collapse">
                 <thead>
