@@ -16,7 +16,7 @@ const MAX_ASSETS_FOR_ANALYSIS = 50; // Performance constraint
 // --- TYPE DEFINITIONS ---
 interface Asset {
   ticker: string; name: string; country: string; sector: string;
-  asset_class: 'EQUITY' | 'CRYPTO' | 'BENCHMARK'; price?: number; is_esg?: boolean; is_shariah_compliant?: boolean;
+  asset_class: 'EQUITY' | 'CRYPTO' | 'BENCHMARK'; price?: number; is_shariah_compliant?: boolean;
 }
 interface PortfolioAsset extends Asset { weight: number; }
 interface OptimizationResult {
@@ -161,8 +161,8 @@ const scale = (matrix: number[][], scalar: number): number[][] => matrix.map(row
 
 // --- STATIC DATA FALLBACKS ---
 const staticAssetsList: Asset[] = [
-    { ticker: 'AAPL', name: 'Apple Inc.', country: 'US', sector: 'Technology', asset_class: 'EQUITY', is_esg: true, is_shariah_compliant: true },
-    { ticker: 'MSFT', name: 'Microsoft Corp.', country: 'US', sector: 'Technology', asset_class: 'EQUITY', is_esg: true, is_shariah_compliant: true },
+    { ticker: 'AAPL', name: 'Apple Inc.', country: 'US', sector: 'Technology', asset_class: 'EQUITY', is_shariah_compliant: true },
+    { ticker: 'MSFT', name: 'Microsoft Corp.', country: 'US', sector: 'Technology', asset_class: 'EQUITY', is_shariah_compliant: true },
     { ticker: 'SPY', name: 'SPDR S&P 500 ETF', country: 'US', sector: 'Mixed', asset_class: 'BENCHMARK' },
     { ticker: 'QQQ', name: 'Invesco QQQ Trust', country: 'US', sector: 'Mixed', asset_class: 'BENCHMARK' },
     { ticker: 'BTC', name: 'Bitcoin', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO' },
@@ -222,7 +222,9 @@ const getHistoricalDataForAssets = async (assets: Asset[]): Promise<{ returnsMat
         validAssets.forEach(asset => {
             const prevPrice = recentAlignedPrices[i - 1].prices[asset.ticker];
             const currPrice = recentAlignedPrices[i].prices[asset.ticker];
-            dailyReturns[asset.ticker].push((currPrice / prevPrice) - 1);
+            if (prevPrice > 0) {
+                dailyReturns[asset.ticker].push((currPrice / prevPrice) - 1);
+            }
         });
     }
 
@@ -259,7 +261,7 @@ const calculatePortfolioMetrics = (weights: number[], meanReturns: number[], cov
     const weightsTransposed = [weights];
     const covTimesWeights = multiply(covMatrix, transpose([weights]));
     const variance = multiply(weightsTransposed, covTimesWeights)[0][0];
-    const volatility = Math.sqrt(variance);
+    const volatility = Math.sqrt(Math.max(0, variance));
     const sharpeRatio = volatility > 0 ? (returns - riskFreeRate) / volatility : 0;
     return { returns, volatility, sharpeRatio };
 };
@@ -267,18 +269,33 @@ const calculatePortfolioMetrics = (weights: number[], meanReturns: number[], cov
 // --- API HANDLERS ---
 const handlers: Record<string, (payload: any) => Promise<any>> = {
   getAvailableAssets: async () => withCache('available-assets', async () => {
-    const [stockData, cryptoData] = await Promise.all([
+    const results = await Promise.allSettled([
         apiFetch(`${FMP_BASE_URL}/stock/list?apikey=${FMP_API_KEY}`),
         apiFetch(`${FMP_BASE_URL}/symbol/available-cryptocurrencies?apikey=${FMP_API_KEY}`)
     ]);
+
+    const stockData = results[0].status === 'fulfilled' ? results[0].value : [];
+    const cryptoData = results[1].status === 'fulfilled' ? results[1].value : [];
+    
     const majorExchanges = new Set(['NASDAQ', 'NYSE', 'AMEX']);
     const filteredStocks = stockData.filter((s: any) => majorExchanges.has(s.exchangeShortName) && s.type === 'stock').map((s: any) => ({ ticker: s.symbol, name: s.name, price: s.price, country: 'US', asset_class: 'EQUITY', sector: 'Unknown' }));
     const filteredCryptos = cryptoData.slice(0, 100).map((c: any) => ({ ticker: c.symbol.replace('USD', ''), name: c.name, price: c.price, country: 'CRYPTO', asset_class: 'CRYPTO', sector: 'Cryptocurrency' }));
-    return { assets: [...filteredStocks.slice(0, 400), ...filteredCryptos] };
+    
+    const assets = [...filteredStocks.slice(0, 400), ...filteredCryptos];
+    if (assets.length === 0) {
+        return { assets: staticAssetsList };
+    }
+    return { assets };
   }, TTL_6_HOURS),
 
   getAssetPriceHistory: async ({ ticker }) => withCache(`price-history-${ticker}`, async () => {
-    const isCrypto = staticAssetsList.find(a => a.ticker === ticker && a.asset_class === 'CRYPTO') || ticker.endsWith('-USD');
+    // A more robust way to check if an asset is a cryptocurrency by checking the master asset list.
+    // This is better than relying on a small, hardcoded list.
+    const allAssetsResponse = await handlers.getAvailableAssets({});
+    const allAssets: Asset[] = allAssetsResponse.data.assets;
+    const assetInfo = allAssets.find((a: Asset) => a.ticker === ticker);
+    const isCrypto = assetInfo?.asset_class === 'CRYPTO';
+
     const fmpTicker = isCrypto ? `${ticker}USD` : ticker;
     try {
         const url = `${FMP_BASE_URL}/historical-price-full/${fmpTicker}?apikey=${FMP_API_KEY}`;
@@ -287,12 +304,13 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
         if (history.length > 0) return history;
         throw new Error("Empty history from FMP");
     } catch (fmpError) {
+        console.warn(`FMP failed for ${ticker}, falling back to AV. Error: ${fmpError.message}`);
         const avFunction = isCrypto ? 'DIGITAL_CURRENCY_DAILY' : 'TIME_SERIES_DAILY_ADJUSTED';
         const avSymbol = isCrypto ? ticker : ticker;
         const url = `${AV_BASE_URL}?function=${avFunction}&symbol=${avSymbol}${isCrypto ? '&market=USD' : ''}&outputsize=full&apikey=${ALPHA_VANTAGE_API_KEY}`;
         const data = await apiFetch(url);
         const timeSeriesKey = Object.keys(data).find(k => k.includes('Time Series') || k.includes('Digital Currency'));
-        if (!timeSeriesKey || !data[timeSeriesKey]) throw new Error("Invalid AV response");
+        if (!timeSeriesKey || !data[timeSeriesKey]) throw new Error(`Invalid AV response for ${ticker}`);
         const timeSeries = data[timeSeriesKey];
         return Object.entries(timeSeries).map(([date, values]: [string, any]) => ({
             date, price: parseFloat(isCrypto ? values['4a. close (USD)'] : values['4. close'])
@@ -309,20 +327,43 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
   }, TTL_15_MINUTES),
 
   getFinancialRatios: async ({ ticker }) => withCache(`ratios-${ticker}`, async () => {
-    const quoteData = await apiFetch(`${FMP_BASE_URL}/quote/${ticker}?apikey=${FMP_API_KEY}`);
-    const profileData = await apiFetch(`${FMP_BASE_URL}/profile/${ticker}?apikey=${FMP_API_KEY}`);
-    const metricsData = await apiFetch(`${FMP_BASE_URL}/key-metrics-ttm/${ticker}?apikey=${FMP_API_KEY}`);
-    const quote = quoteData[0] || {}; const profile = profileData[0] || {}; const metrics = metricsData[0] || {};
-    const ratios = [{ label: 'P/E (TTM)', value: (quote.pe ?? metrics.peRatioTTM)?.toFixed(2) }, { label: 'P/B', value: metrics.priceToBookRatioTTM?.toFixed(2) }, { label: 'Dividend Yield', value: metrics.dividendYieldTTM != null ? `${(metrics.dividendYieldTTM * 100).toFixed(2)}%` : undefined }, { label: 'Market Cap', value: formatLargeNumber(quote.marketCap) }, { label: 'EPS (TTM)', value: (quote.eps ?? metrics.epsTTM)?.toFixed(2) }, { label: 'Beta', value: profile.beta?.toFixed(2) }];
+    const results = await Promise.allSettled([
+        apiFetch(`${FMP_BASE_URL}/quote/${ticker}?apikey=${FMP_API_KEY}`),
+        apiFetch(`${FMP_BASE_URL}/profile/${ticker}?apikey=${FMP_API_KEY}`),
+        apiFetch(`${FMP_BASE_URL}/key-metrics-ttm/${ticker}?apikey=${FMP_API_KEY}`)
+    ]);
+
+    const quoteData = results[0].status === 'fulfilled' ? results[0].value : [];
+    const profileData = results[1].status === 'fulfilled' ? results[1].value : [];
+    const metricsData = results[2].status === 'fulfilled' ? results[2].value : [];
+
+    const quote = quoteData[0] || {}; 
+    const profile = profileData[0] || {}; 
+    const metrics = metricsData[0] || {};
+    
+    const ratios = [
+        { label: 'P/E (TTM)', value: (quote.pe ?? metrics.peRatioTTM)?.toFixed(2) },
+        { label: 'P/B', value: metrics.priceToBookRatioTTM?.toFixed(2) },
+        { label: 'Dividend Yield', value: metrics.dividendYieldTTM != null ? `${(metrics.dividendYieldTTM * 100).toFixed(2)}%` : undefined },
+        { label: 'Market Cap', value: formatLargeNumber(quote.marketCap) },
+        { label: 'EPS (TTM)', value: (quote.eps ?? metrics.epsTTM)?.toFixed(2) },
+        { label: 'Beta', value: profile.beta?.toFixed(2) }
+    ];
+
     return ratios.map(r => ({ ...r, value: r.value ?? 'N/A' })).filter(r => r.value !== 'N/A');
   }, TTL_60_DAYS),
 
   getFinancialsSnapshot: async ({ ticker }) => withCache(`financials-${ticker}`, async () => {
-      const [incomeData, balanceData, cashflowData] = await Promise.all([
+      const results = await Promise.allSettled([
           apiFetch(`${FMP_BASE_URL}/income-statement/${ticker}?period=annual&limit=1&apikey=${FMP_API_KEY}`),
           apiFetch(`${FMP_BASE_URL}/balance-sheet-statement/${ticker}?period=annual&limit=1&apikey=${FMP_API_KEY}`),
           apiFetch(`${FMP_BASE_URL}/cash-flow-statement/${ticker}?period=annual&limit=1&apikey=${FMP_API_KEY}`)
       ]);
+
+      const incomeData = results[0].status === 'fulfilled' ? results[0].value : [];
+      const balanceData = results[1].status === 'fulfilled' ? results[1].value : [];
+      const cashflowData = results[2].status === 'fulfilled' ? results[2].value : [];
+      
       const incomeStatement = incomeData[0] || {};
       const balanceSheet = balanceData[0] || {};
       const cashFlowStatement = cashflowData[0] || {};
@@ -348,17 +389,19 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
     return { description: profile.description, beta: profile.beta };
   }, TTL_60_DAYS),
 
-  getEsgData: async ({ ticker }) => withCache(`esg-${ticker}`, async () => {
-    const data = await apiFetch(`${FMP_BASE_URL}/esg-score/${ticker}?apikey=${FMP_API_KEY}`);
-    const esg = data[0];
-    return { totalScore: esg.ESGScore, eScore: esg.environmentalScore, sScore: esg.socialScore, gScore: esg.governanceScore, rating: esg.ESGRiskRating };
-  }, TTL_60_DAYS),
-
   getDividendInfo: async ({ ticker }) => withCache(`dividend-${ticker}`, async () => {
-    const [dividendData, quoteData] = await Promise.all([
+    const results = await Promise.allSettled([
       apiFetch(`${FMP_BASE_URL}/historical-price-full/stock_dividend/${ticker}?apikey=${FMP_API_KEY}`),
       apiFetch(`${FMP_BASE_URL}/quote/${ticker}?apikey=${FMP_API_KEY}`)
     ]);
+
+    if (results[0].status === 'rejected') {
+      return null;
+    }
+    
+    const dividendData = results[0].value;
+    const quoteData = results[1].status === 'fulfilled' ? results[1].value : [];
+    
     const historical = dividendData.historical;
     if (!historical || historical.length === 0) return null;
     const lastDividend = historical[0];
@@ -380,7 +423,6 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
 
   startChatStream: async ({ message, history }) => {
     if (!GEMINI_API_KEY) throw new Error("Missing GEMINI_API_KEY");
-    // FIX: Correctly initialize GoogleGenAI by passing the API key as a named parameter within an object, as per SDK guidelines.
     const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
     const model = "gemini-2.5-flash";
     const chat = ai.chats.create({ model, history });
@@ -388,11 +430,8 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
     return new ReadableStream({
       async start(controller) {
         for await (const chunk of stream) {
-          // FIX: The user reported an error with `chunk.text`. While the guidelines
-          // state that `chunk.text` is the correct property, this accesses the
-          // text from the candidate parts directly as a more robust alternative
-          // in case the `.text` getter is behaving unexpectedly in this environment.
-          const text = (chunk.candidates?.[0]?.content?.parts || []).map(p => p.text).join('');
+          // FIX: Per Gemini API guidelines, the `.text` accessor on a streaming chunk is a property.
+          const text = chunk.text;
           if (text) controller.enqueue(new TextEncoder().encode(text));
         }
         controller.close();
@@ -401,13 +440,13 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
   },
 
   // --- Portfolio Service Logic ---
-  calculatePortfolioMetricsFromCustomWeights: async({ assets, weights }) => {
+  calculatePortfolioMetricsFromCustomWeights: async({ assets, weights, currency }) => {
     const { meanReturns, covMatrix, validAssets } = await getHistoricalDataForAssets(assets);
     const weightVector = validAssets.map(a => (weights[a.ticker] || 0) / 100);
     const { returns, volatility, sharpeRatio } = calculatePortfolioMetrics(weightVector, meanReturns, covMatrix);
     const result = {
         weights: validAssets.map((a, i) => ({ ...a, weight: weightVector[i] })),
-        returns, volatility, sharpeRatio, currency: 'USD'
+        returns, volatility, sharpeRatio, currency
     };
     return { data: result, source: 'live' };
   },
@@ -415,7 +454,6 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
     const availableAssets = (await handlers.getAvailableAssets()).data.assets;
     let selectedAssets: Asset[] = [];
     if (template === 'Aggressive') selectedAssets = [...availableAssets.filter(a => a.sector === 'Technology').slice(0, 3), ...availableAssets.filter(a => a.asset_class === 'CRYPTO').slice(0, 2)];
-    else if (template === 'ESG') selectedAssets = availableAssets.filter(a => a.is_esg).slice(0, 5);
     else selectedAssets = availableAssets.filter(a => ['SPY', 'QQQ', 'AGG', 'GLD'].includes(a.ticker));
     if (selectedAssets.length < 2) selectedAssets = staticData.assets.slice(0, 4);
     
@@ -436,6 +474,7 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
     for (let i = 0; i < 5000; i++) {
         const rand = Array.from({ length: validAssets.length }, () => Math.random());
         const total = rand.reduce((a, b) => a + b, 0);
+        if (total === 0) continue;
         const weights = rand.map(r => r / total);
         
         const { returns, volatility, sharpeRatio } = calculatePortfolioMetrics(weights, meanReturns, covMatrix);
@@ -481,7 +520,7 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
 
     const tauSigma = scale(covMatrix, tau);
     const P_tauSigma_PT = multiply(P, multiply(tauSigma, transpose(P)));
-    const Omega = P_tauSigma_PT.map((row, i) => row.map((val, j) => i === j ? val / (views[i].confidence || 0.5) : 0)); // Use confidence to scale uncertainty
+    const Omega = P_tauSigma_PT.map((row, i) => row.map((val, j) => i === j ? val / (views[i].confidence || 0.5) : 0));
 
     const tauSigmaInv = invert(tauSigma);
     const OmegaInv = invert(Omega);
@@ -503,6 +542,7 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
     for (let i = 0; i < 5000; i++) {
         const rand = Array.from({ length: numAssets }, () => Math.random());
         const total = rand.reduce((a, b) => a + b, 0);
+        if (total === 0) continue;
         const weights = rand.map(r => r / total);
         
         const { returns, volatility, sharpeRatio } = calculatePortfolioMetrics(weights, posteriorReturns, covMatrix);

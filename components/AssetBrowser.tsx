@@ -10,7 +10,6 @@ import { useWatchlist } from '../hooks/useWatchlist';
 import Tooltip from './ui/Tooltip';
 import InfoIcon from './ui/InfoIcon';
 import Button from './ui/Button';
-import EsgDataView from './analytics/EsgDataView';
 import { useDebounce } from '../hooks/useDebounce';
 
 const ratioDefinitions: Record<string, string> = {
@@ -312,10 +311,7 @@ const AssetBrowser: React.FC<AssetBrowserProps> = ({ openAiChat }) => {
                         <h2 className="text-2xl font-bold text-brand-primary">{selectedAsset.name} ({selectedAsset.ticker})</h2>
                         <p className="text-light-text-secondary dark:text-dark-text-secondary">{selectedAsset.sector} - {selectedAsset.country}</p>
                          {isProOrHigher && selectedAsset.asset_class === 'EQUITY' && (
-                            <div className="flex gap-4 mt-2">
-                                <span className={`text-xs font-semibold px-2 py-1 rounded-full ${selectedAsset.is_esg ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-700'}`}>
-                                    ESG Focus
-                                </span>
+                            <div className="mt-2">
                                 <div className="flex items-center gap-1">
                                     <span className={`text-xs font-semibold px-2 py-1 rounded-full ${selectedAsset.is_shariah_compliant ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
                                         Shariah Compliant
@@ -394,24 +390,18 @@ const AssetBrowser: React.FC<AssetBrowserProps> = ({ openAiChat }) => {
                                 ))}
                             </ul>
                         </Card>
-                        {isProOrHigher && selectedAsset.asset_class === 'EQUITY' ? (
-                            <Card title="ESG Profile">
-                                <EsgDataView ticker={selectedAsset.ticker} />
-                            </Card>
-                        ) : (
-                            <Card title={`Financials Snapshot (As of ${assetData.financials.asOf})`}>
-                                <div className="space-y-4">
-                                    <div>
-                                        <h4 className="font-bold mb-1">Income Statement</h4>
-                                        {assetData.financials.income.map(item => <p key={item.metric} className="flex justify-between text-sm"><span>{item.metric}:</span> <span>{item.value}</span></p>)}
-                                    </div>
-                                    <div>
-                                        <h4 className="font-bold mb-1">Balance Sheet</h4>
-                                        {assetData.financials.balanceSheet.map(item => <p key={item.metric} className="flex justify-between text-sm"><span>{item.metric}:</span> <span>{item.value}</span></p>)}
-                                    </div>
+                        <Card title={`Financials Snapshot (As of ${assetData.financials.asOf})`}>
+                            <div className="space-y-4">
+                                <div>
+                                    <h4 className="font-bold mb-1">Income Statement</h4>
+                                    {assetData.financials.income.map(item => <p key={item.metric} className="flex justify-between text-sm"><span>{item.metric}:</span> <span>{item.value}</span></p>)}
                                 </div>
-                            </Card>
-                        )}
+                                <div>
+                                    <h4 className="font-bold mb-1">Balance Sheet</h4>
+                                    {assetData.financials.balanceSheet.map(item => <p key={item.metric} className="flex justify-between text-sm"><span>{item.metric}:</span> <span>{item.value}</span></p>)}
+                                </div>
+                            </div>
+                        </Card>
                     </div>
                 </>
             )}

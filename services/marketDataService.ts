@@ -1,4 +1,4 @@
-import { FinancialRatio, Financials, PriceDataPoint, PriceSummary, Asset, DividendInfo, EsgData, OptionContract, Currency, DataSource } from '../types';
+import { FinancialRatio, Financials, PriceDataPoint, PriceSummary, Asset, DividendInfo, OptionContract, Currency, DataSource } from '../types';
 import { supabase } from './supabaseClient';
 
 export interface ServiceResponse<T> {
@@ -53,10 +53,6 @@ export const marketDataService = {
 
     getDividendInfo: (ticker: string): Promise<ServiceResponse<DividendInfo | null>> => {
         return invokeApiProxy<DividendInfo | null>('getDividendInfo', { ticker });
-    },
-
-    getEsgData: (ticker: string): Promise<ServiceResponse<EsgData | null>> => {
-        return invokeApiProxy<EsgData | null>('getEsgData', { ticker });
     },
 
     getOptionChain: (ticker: string, date: string): Promise<ServiceResponse<OptionContract[]>> => {

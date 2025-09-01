@@ -7,7 +7,6 @@ export enum UserTier {
 export enum PortfolioTemplate {
     Balanced = 'Balanced',
     Aggressive = 'Aggressive',
-    ESG = 'ESG',
     Shariah = 'Shariah',
     Custom = 'Custom',
 }
@@ -31,7 +30,6 @@ export interface Asset {
   sector: string;
   asset_class: 'EQUITY' | 'CRYPTO' | 'BENCHMARK';
   price?: number;
-  is_esg?: boolean;
   is_shariah_compliant?: boolean;
 }
 
@@ -235,14 +233,6 @@ export interface DividendInfo {
     amountPerShare: number;
     payDate: string;
     projectedAnnualIncome: number;
-}
-
-export interface EsgData {
-    totalScore: number;
-    eScore: number;
-    sScore: number;
-    gScore: number;
-    rating: string;
 }
 
 export interface OptionContract {

@@ -152,7 +152,7 @@ const PortfolioView: React.FC<PortfolioViewProps> = ({ setCurrentView }) => {
         if(settings.riskTolerance === 'Aggressive' || settings.timeline > 20) {
             setTemplate(PortfolioTemplate.Aggressive);
         } else if (settings.riskTolerance === 'Conservative' && settings.timeline < 5) {
-            setTemplate(PortfolioTemplate.ESG); // As a proxy for a conservative, stable choice
+            setTemplate(PortfolioTemplate.Balanced); // As a proxy for a conservative, stable choice
         } else {
             setTemplate(PortfolioTemplate.Balanced);
         }
