@@ -1,3 +1,4 @@
+
 import { supabase } from './supabaseClient';
 
 export const aiService = {
@@ -5,8 +6,7 @@ export const aiService = {
     try {
       const { data, error } = await supabase.functions.invoke('api-proxy', {
         body: { command: 'startChatStream', payload: { message, history } },
-        // FIX: 'responseType' is not a valid property for Supabase function invocation.
-        // The function correctly handles the stream from the response body.
+        responseType: 'stream' // Specify that we expect a stream response
       });
 
       if (error) {
@@ -15,12 +15,12 @@ export const aiService = {
         return;
       }
       
-      if (!data?.body) {
+      if (!data) { // The 'data' object itself is the ReadableStream
         yield { text: "Received an empty response from the AI assistant." };
         return;
       }
 
-      const reader = data.body.getReader();
+      const reader = data.getReader();
       const decoder = new TextDecoder();
       
       while (true) {

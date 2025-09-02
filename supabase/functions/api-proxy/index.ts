@@ -312,8 +312,18 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
         const avSymbol = isCrypto ? ticker : ticker;
         const url = `${AV_BASE_URL}?function=${avFunction}&symbol=${avSymbol}${isCrypto ? '&market=USD' : ''}&outputsize=full&apikey=${ALPHA_VANTAGE_API_KEY}`;
         const data = await apiFetch(url);
+
+        if (data.Note || data["Error Message"]) {
+            const errorMessage = data.Note || data["Error Message"];
+            console.warn(`Alpha Vantage API limit or error for ${ticker}: ${errorMessage}`);
+            throw new Error(`AV API error for ${ticker}: ${errorMessage}`);
+        }
+
         const timeSeriesKey = Object.keys(data).find(k => k.includes('Time Series') || k.includes('Digital Currency'));
-        if (!timeSeriesKey || !data[timeSeriesKey]) throw new Error(`Invalid AV response for ${ticker}`);
+        if (!timeSeriesKey || !data[timeSeriesKey]) {
+            console.warn(`Invalid AV response structure for ${ticker}:`, data);
+            throw new Error(`Invalid AV response for ${ticker}`);
+        }
         const timeSeries = data[timeSeriesKey];
         return Object.entries(timeSeries).map(([date, values]: [string, any]) => ({
             date, price: parseFloat(isCrypto ? values['4a. close (USD)'] : values['4. close'])
@@ -452,97 +462,107 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
     };
     return { data: result, source: 'live' };
   },
-  generateAndOptimizePortfolio: async ({ template, optimizationModel, runner, constraints }) => {
-    const { data: { assets: availableAssets } } = await handlers.getAvailableAssets({});
-    let selectedAssets: Asset[] = [];
+  generateAndOptimizePortfolio: async ({ template, optimizationModel, runner, currency, constraints }) => {
+      const { data: { assets: availableAssets } } = await handlers.getAvailableAssets({});
+      let selectedAssets: Asset[] = [];
 
-    switch (template) {
-        case 'Aggressive': {
-            const nasdaq = await apiFetch(`${FMP_BASE_URL}/nasdaq_constituent?apikey=${FMP_API_KEY}`);
-            const tickers = nasdaq.map((c: any) => c.symbol).slice(0, 100);
-            const quotes = await apiFetch(`${FMP_BASE_URL}/quote/${tickers.join(',')}?apikey=${FMP_API_KEY}`);
-            const largeCaps = quotes.filter((q: any) => q.marketCap > 200e9).map((q: any) => q.symbol);
-            
-            const growthPromises = largeCaps.map((t: string) => apiFetch(`${FMP_BASE_URL}/financial-growth/${t}?period=annual&limit=1&apikey=${FMP_API_KEY}`));
-            const growthResults = await Promise.allSettled(growthPromises);
+      const getCachedTemplateAssets = async (cacheKey: string) => {
+          if (!supabaseAdmin) return null;
+          const { data, error } = await supabaseAdmin.from('api_cache').select('data').eq('key', cacheKey).single();
+          if (error || !data) {
+              if (error && error.code !== 'PGRST116') console.error(`Error fetching cached template ${cacheKey}:`, error.message);
+              return null;
+          }
+          return data.data as Asset[];
+      };
+      
+      const liveScreenNasdaq = async (): Promise<Asset[]> => {
+          console.log("Fallback: Live screening Nasdaq...");
+          const nasdaq = await apiFetch(`${FMP_BASE_URL}/nasdaq_constituent?apikey=${FMP_API_KEY}`);
+          const tickers = nasdaq.map((c: any) => c.symbol).slice(0, 100);
+          const quotes = await apiFetch(`${FMP_BASE_URL}/quote/${tickers.join(',')}?apikey=${FMP_API_KEY}`);
+          const largeCaps = quotes.filter((q: any) => q.marketCap > 200e9).map((q: any) => q.symbol);
+          
+          const growthPromises = largeCaps.map((t: string) => apiFetch(`${FMP_BASE_URL}/financial-growth/${t}?period=annual&limit=1&apikey=${FMP_API_KEY}`));
+          const growthResults = await Promise.allSettled(growthPromises);
 
-            const highGrowth = growthResults
-                .map((res, i) => res.status === 'fulfilled' && res.value[0] ? { ticker: largeCaps[i], growth: res.value[0].revenueGrowth } : null)
-                .filter(Boolean)
-                .sort((a, b) => b.growth - a.growth)
-                .slice(0, 15)
-                .map(item => item.ticker);
+          const highGrowthTickers = growthResults
+              .map((res, i) => res.status === 'fulfilled' && res.value[0] ? { ticker: largeCaps[i], growth: res.value[0].revenueGrowth } : null)
+              .filter(Boolean).sort((a: any, b: any) => b.growth - a.growth).slice(0, 15).map((item: any) => item.ticker);
+          
+          const aggressiveEquities = availableAssets.filter((a: Asset) => highGrowthTickers.includes(a.ticker));
+          const aggressiveCryptos = availableAssets.filter((a: Asset) => ['BTC', 'ETH', 'SOL'].includes(a.ticker));
+          return [...aggressiveEquities, ...aggressiveCryptos];
+      };
+      
+      const liveScreenShariah = async (): Promise<Asset[]> => {
+          console.log("Fallback: Live screening Shariah...");
+          const compliant = await apiFetch(`https://financialmodelingprep.com/api/v4/shariah-screener?country=US&apikey=${FMP_API_KEY}`);
+          const tickers = compliant.map((c: any) => c.symbol).slice(0, 100);
+          const quotes = await apiFetch(`${FMP_BASE_URL}/quote/${tickers.join(',')}?apikey=${FMP_API_KEY}`);
+          const largestCompliantTickers = quotes.sort((a: any, b: any) => b.marketCap - a.marketCap).slice(0, 20).map((q: any) => q.symbol);
+          return availableAssets.filter((a: Asset) => largestCompliantTickers.includes(a.ticker));
+      };
 
-            const aggressiveEquities = availableAssets.filter(a => highGrowth.includes(a.ticker));
-            const aggressiveCryptos = availableAssets.filter(a => ['BTC', 'ETH', 'SOL'].includes(a.ticker));
-            selectedAssets = [...aggressiveEquities, ...aggressiveCryptos];
-            break;
-        }
-        case 'Balanced': {
-            const tickersToUse = ['SPY', 'AGG', 'GLD', 'IEFA', 'JNJ', 'PG'];
-            selectedAssets = availableAssets.filter(a => tickersToUse.includes(a.ticker));
-            break;
-        }
-        case 'Shariah': {
-            const compliant = await apiFetch(`https://financialmodelingprep.com/api/v4/shariah-screener?country=US&apikey=${FMP_API_KEY}`);
-            const tickers = compliant.map((c: any) => c.symbol).slice(0, 100);
-            const quotes = await apiFetch(`${FMP_BASE_URL}/quote/${tickers.join(',')}?apikey=${FMP_API_KEY}`);
-            const largestCompliant = quotes
-                .sort((a: any, b: any) => b.marketCap - a.marketCap)
-                .slice(0, 20)
-                .map((q: any) => q.symbol);
-            selectedAssets = availableAssets.filter(a => largestCompliant.includes(a.ticker));
-            break;
-        }
-    }
-    
-    if (selectedAssets.length < 2) {
-        selectedAssets = staticAssetsList.filter(a => ['SPY', 'QQQ', 'AGG', 'GLD'].includes(a.ticker));
-    }
-    
-    const { meanReturns, covMatrix, validAssets } = await getHistoricalDataForAssets(selectedAssets);
+      switch (template) {
+          case 'Aggressive':
+              selectedAssets = await getCachedTemplateAssets('template-assets-aggressive') ?? await liveScreenNasdaq();
+              break;
+          case 'Shariah':
+              selectedAssets = await getCachedTemplateAssets('template-assets-shariah') ?? await liveScreenShariah();
+              break;
+          case 'Balanced':
+              const tickersToUse = ['SPY', 'AGG', 'GLD', 'IEFA', 'JNJ', 'PG'];
+              selectedAssets = availableAssets.filter((a: Asset) => tickersToUse.includes(a.ticker));
+              break;
+      }
+      
+      if (selectedAssets.length < 2) {
+          selectedAssets = staticAssetsList.filter(a => ['SPY', 'QQQ', 'AGG', 'GLD'].includes(a.ticker));
+      }
+      
+      const { meanReturns, covMatrix, validAssets } = await getHistoricalDataForAssets(selectedAssets);
 
-    if (runner === 'optimize') {
-        const equalWeights = Array(validAssets.length).fill(1 / validAssets.length);
-        const metrics = calculatePortfolioMetrics(equalWeights, meanReturns, covMatrix);
-        const result = { weights: validAssets.map((a, i) => ({ ...a, weight: equalWeights[i] })), ...metrics, currency: 'USD' };
-        return { bestSharpe: result, simulations: [], averageWeights: result.weights };
-    }
+      if (runner === 'optimize') {
+          const equalWeights = Array(validAssets.length).fill(1 / validAssets.length);
+          const metrics = calculatePortfolioMetrics(equalWeights, meanReturns, covMatrix);
+          const result = { weights: validAssets.map((a, i) => ({ ...a, weight: equalWeights[i] })), ...metrics, currency: currency || 'USD' };
+          return { bestSharpe: result, simulations: [], averageWeights: result.weights };
+      }
 
-    const simulations = [];
-    let bestSharpePortfolio = { sharpeRatio: -Infinity, weights: [], returns: 0, volatility: 0 };
-    let minVolatilityPortfolio = { volatility: Infinity, weights: [], returns: 0, sharpeRatio: 0 };
+      const simulations = [];
+      let bestSharpePortfolio = { sharpeRatio: -Infinity, weights: [], returns: 0, volatility: 0 };
+      let minVolatilityPortfolio = { volatility: Infinity, weights: [], returns: 0, sharpeRatio: 0 };
 
-    for (let i = 0; i < 7500; i++) {
-        const rand = Array.from({ length: validAssets.length }, () => Math.random());
-        const total = rand.reduce((a, b) => a + b, 0);
-        if (total === 0) continue;
-        let weights = rand.map(r => r / total);
-        
-        // --- APPLY CONSTRAINTS ---
-        if (constraints?.maxAssetWeight && weights.some(w => w > constraints.maxAssetWeight)) continue;
-        if (constraints?.maxSectorWeight) {
-            const sectorWeights: Record<string, number> = {};
-            validAssets.forEach((asset, i) => {
-                sectorWeights[asset.sector] = (sectorWeights[asset.sector] || 0) + weights[i];
-            });
-            if (Object.values(sectorWeights).some(sw => sw > constraints.maxSectorWeight)) continue;
-        }
-        
-        const { returns, volatility, sharpeRatio } = calculatePortfolioMetrics(weights, meanReturns, covMatrix);
-        simulations.push({ returns, volatility, sharpeRatio });
-        
-        if (sharpeRatio > bestSharpePortfolio.sharpeRatio) bestSharpePortfolio = { returns, volatility, sharpeRatio, weights };
-        if (volatility < minVolatilityPortfolio.volatility) minVolatilityPortfolio = { returns, volatility, sharpeRatio, weights };
-    }
+      for (let i = 0; i < 7500; i++) {
+          const rand = Array.from({ length: validAssets.length }, () => Math.random());
+          const total = rand.reduce((a, b) => a + b, 0);
+          if (total === 0) continue;
+          let weights = rand.map(r => r / total);
+          
+          if (constraints?.maxAssetWeight && weights.some(w => w > constraints.maxAssetWeight)) continue;
+          if (constraints?.maxSectorWeight) {
+              const sectorWeights: Record<string, number> = {};
+              validAssets.forEach((asset, i) => {
+                  sectorWeights[asset.sector] = (sectorWeights[asset.sector] || 0) + weights[i];
+              });
+              if (Object.values(sectorWeights).some(sw => sw > constraints.maxSectorWeight)) continue;
+          }
+          
+          const { returns, volatility, sharpeRatio } = calculatePortfolioMetrics(weights, meanReturns, covMatrix);
+          simulations.push({ returns, volatility, sharpeRatio });
+          
+          if (sharpeRatio > bestSharpePortfolio.sharpeRatio) bestSharpePortfolio = { returns, volatility, sharpeRatio, weights };
+          if (volatility < minVolatilityPortfolio.volatility) minVolatilityPortfolio = { returns, volatility, sharpeRatio, weights };
+      }
 
-    const optimal = optimizationModel === 'Minimize Volatility' ? minVolatilityPortfolio : bestSharpePortfolio;
-    const bestSharpeResult: OptimizationResult = {
-        weights: validAssets.map((a, i) => ({ ...a, weight: optimal.weights[i] })),
-        returns: optimal.returns, volatility: optimal.volatility, sharpeRatio: optimal.sharpeRatio, currency: 'USD'
-    };
+      const optimal = optimizationModel === 'Minimize Volatility' ? minVolatilityPortfolio : bestSharpePortfolio;
+      const bestSharpeResult: OptimizationResult = {
+          weights: validAssets.map((a, i) => ({ ...a, weight: optimal.weights[i] })),
+          returns: optimal.returns, volatility: optimal.volatility, sharpeRatio: optimal.sharpeRatio, currency: currency || 'USD'
+      };
 
-    return { bestSharpe: bestSharpeResult, simulations, averageWeights: bestSharpeResult.weights };
+      return { bestSharpe: bestSharpeResult, simulations, averageWeights: bestSharpeResult.weights };
   },
   
   runBlackLittermanOptimization: async ({ assets, views, currency }: { assets: Asset[], views: BlackLittermanView[], currency: string }) => {
