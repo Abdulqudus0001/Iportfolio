@@ -10,11 +10,6 @@ interface Asset {
   ticker: string; name: string; country: string; sector: string;
   asset_class: 'EQUITY' | 'CRYPTO' | 'BENCHMARK'; price?: number; is_shariah_compliant?: boolean;
 }
-// Explicit types for API responses
-interface Sp500Constituent { symbol: string; name: string; sector: string; }
-interface FmpQuote { symbol: string; marketCap: number; }
-interface ShariahAsset { symbol: string; }
-
 
 // --- API & DB CLIENTS ---
 const FMP_API_KEY = Deno.env.get("FMP_API_KEY");
@@ -45,57 +40,90 @@ const CACHE_KEYS = {
 
 // --- SCREENING LOGIC ---
 const screenAggressive = async (): Promise<Asset[]> => {
-    console.log("Starting S&P 500 (Aggressive) screening...");
-    
-    // Fetch all available assets to map tickers to full Asset objects later
-    const allAssetsResponse: { symbol: string; name: string }[] = await apiFetch(`${FMP_BASE_URL}/stock/list?apikey=${FMP_API_KEY}`);
-    const availableAssetsMap = new Map(allAssetsResponse.map((a) => [a.symbol, a]));
+    console.log("Starting Aggressive template screening using stock screener...");
+    try {
+        const growthSectors = ['Technology', 'Consumer Cyclical'];
+        const screenerPromises = growthSectors.map(sector =>
+            apiFetch(`${FMP_BASE_URL}/stock-screener?marketCapMoreThan=200000000000&sector=${encodeURIComponent(sector)}&limit=10&isActivelyTrading=true&exchange=NASDAQ,NYSE&apikey=${FMP_API_KEY}`)
+        );
+        const screenerResults = await Promise.all(screenerPromises);
+        
+        const growthStocks: Asset[] = screenerResults.flat().map((s: any) => ({
+            ticker: s.symbol,
+            name: s.companyName,
+            country: 'US',
+            sector: s.sector,
+            asset_class: 'EQUITY'
+        }));
+        
+        // Remove duplicates and limit total equities
+        const uniqueGrowthStocks = Array.from(new Map(growthStocks.map(item => [item.ticker, item])).values()).slice(0, 15);
 
-    const sp500: Sp500Constituent[] = await apiFetch(`${FMP_BASE_URL}/sp500_constituent?apikey=${FMP_API_KEY}`);
-    
-    const growthSectors = new Set(['Technology', 'Communication Services', 'Consumer Cyclical']);
-    const growthStocks = sp500
-        .filter(s => growthSectors.has(s.sector))
-        .slice(0, 15); // Take top 15 growth-sector stocks
-    
-    const aggressiveEquities: Asset[] = growthStocks.map((s) => ({
-        ticker: s.symbol, 
-        name: s.name || availableAssetsMap.get(s.symbol)?.name || s.symbol, 
-        country: 'US', 
-        sector: s.sector, 
-        asset_class: 'EQUITY' 
-    }));
+        if (uniqueGrowthStocks.length < 5) throw new Error("Stock screener returned too few assets.");
+        
+        const aggressiveCryptos: Asset[] = [
+            { ticker: 'BTC', name: 'Bitcoin', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO' },
+            { ticker: 'ETH', name: 'Ethereum', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO' },
+            { ticker: 'SOL', name: 'Solana', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO' },
+        ];
+        
+        console.log(`Aggressive screening complete. Found ${uniqueGrowthStocks.length} equities.`);
+        return [...uniqueGrowthStocks, ...aggressiveCryptos];
 
-    const aggressiveCryptos: Asset[] = [
-        { ticker: 'BTC', name: 'Bitcoin', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO' },
-        { ticker: 'ETH', name: 'Ethereum', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO' },
-        { ticker: 'SOL', name: 'Solana', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO' },
-    ];
-    
-    console.log(`S&P 500 screening complete. Found ${aggressiveEquities.length} equities.`);
-    return [...aggressiveEquities, ...aggressiveCryptos];
+    } catch (e) {
+        console.error("Aggressive screening failed, returning static fallback.", e.message);
+        return [
+            { ticker: 'AAPL', name: 'Apple Inc.', country: 'US', sector: 'Technology', asset_class: 'EQUITY' },
+            { ticker: 'MSFT', name: 'Microsoft Corp.', country: 'US', sector: 'Technology', asset_class: 'EQUITY' },
+            { ticker: 'AMZN', name: 'Amazon.com, Inc.', country: 'US', sector: 'Consumer Cyclical', asset_class: 'EQUITY' },
+            { ticker: 'BTC', name: 'Bitcoin', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO' },
+            { ticker: 'ETH', name: 'Ethereum', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO' },
+        ];
+    }
 };
 
 const screenShariah = async (): Promise<Asset[]> => {
-    console.log("Starting Shariah screening...");
-    
-    const allAssetsResponse: { symbol: string; name: string }[] = await apiFetch(`${FMP_BASE_URL}/stock/list?apikey=${FMP_API_KEY}`);
-    const availableAssetsMap = new Map(allAssetsResponse.map((a) => [a.symbol, a]));
+    console.log("Starting Shariah screening using ETF constituents...");
+    try {
+        const shariahEtfTicker = 'HLAL'; // Wahed FTSE USA Shariah ETF
+        const holdings: { asset: string; shares: number; weightPercentage: number; }[] = await apiFetch(`${FMP_BASE_URL}/etf-holder/${shariahEtfTicker}?apikey=${FMP_API_KEY}`);
+        
+        if (!holdings || holdings.length === 0) {
+            throw new Error(`No holdings found for Shariah ETF ${shariahEtfTicker}.`);
+        }
 
-    const compliant: ShariahAsset[] = await apiFetch(`https://financialmodelingprep.com/api/v4/shariah-screener?country=US&apikey=${FMP_API_KEY}`);
-    const tickers = compliant.map((c) => c.symbol).slice(0, 100);
+        const topHoldings = holdings.sort((a, b) => b.weightPercentage - a.weightPercentage).slice(0, 25);
+        const tickers = topHoldings.map(h => h.asset);
 
-    console.log(`Found ${tickers.length} Shariah-compliant tickers, fetching quotes...`);
-    const quotes: FmpQuote[] = await apiFetch(`${FMP_BASE_URL}/quote/${tickers.join(',')}?apikey=${FMP_API_KEY}`);
-    const largestCompliantTickers = quotes.sort((a, b) => b.marketCap - a.marketCap).slice(0, 20).map((q) => q.symbol);
-    
-    const shariahAssets: Asset[] = largestCompliantTickers.map((ticker: string) => {
-        const assetInfo = availableAssetsMap.get(ticker);
-        return { ticker, name: assetInfo?.name || ticker, country: 'US', sector: 'Unknown', asset_class: 'EQUITY', is_shariah_compliant: true };
-    });
+        // Fetch profiles for these tickers to get full asset info
+        const profilePromises = tickers.map(ticker => 
+            apiFetch(`${FMP_BASE_URL}/profile/${ticker}?apikey=${FMP_API_KEY}`).catch(() => null)
+        );
+        const profiles = (await Promise.all(profilePromises)).flat().filter(p => p && p.length > 0).map(p => p[0]);
+        
+        const shariahAssets: Asset[] = profiles.map((p: any) => ({
+            ticker: p.symbol,
+            name: p.companyName,
+            country: p.country || 'US',
+            sector: p.sector || 'Unknown',
+            asset_class: 'EQUITY',
+            is_shariah_compliant: true // By definition of being in the ETF
+        }));
 
-    console.log(`Shariah screening complete. Found ${shariahAssets.length} equities.`);
-    return shariahAssets;
+        console.log(`Shariah screening complete. Found ${shariahAssets.length} equities from ${shariahEtfTicker}.`);
+        if (shariahAssets.length < 10) throw new Error("Could not fetch enough profile data for Shariah assets.");
+
+        return shariahAssets;
+    } catch (e) {
+        console.error("Shariah screening via ETF failed, returning static fallback.", e.message);
+        // Fallback to a known static list if the screener fails
+        return [
+            { ticker: 'AAPL', name: 'Apple Inc.', country: 'US', sector: 'Technology', asset_class: 'EQUITY', is_shariah_compliant: true },
+            { ticker: 'MSFT', name: 'Microsoft Corp.', country: 'US', sector: 'Technology', asset_class: 'EQUITY', is_shariah_compliant: true },
+            { ticker: 'JNJ', name: 'Johnson & Johnson', country: 'US', sector: 'Healthcare', asset_class: 'EQUITY', is_shariah_compliant: true },
+            { ticker: 'PG', name: 'Procter & Gamble', country: 'US', sector: 'Consumer Defensive', asset_class: 'EQUITY', is_shariah_compliant: true },
+        ];
+    }
 };
 
 
