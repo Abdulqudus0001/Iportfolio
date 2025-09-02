@@ -11,9 +11,8 @@ interface Asset {
   asset_class: 'EQUITY' | 'CRYPTO' | 'BENCHMARK'; price?: number; is_shariah_compliant?: boolean;
 }
 // Explicit types for API responses
-interface NasdaqConstituent { symbol: string; }
+interface Sp500Constituent { symbol: string; name: string; sector: string; }
 interface FmpQuote { symbol: string; marketCap: number; }
-interface FinancialGrowth { revenueGrowth: number; }
 interface ShariahAsset { symbol: string; }
 
 
@@ -45,39 +44,27 @@ const CACHE_KEYS = {
 };
 
 // --- SCREENING LOGIC ---
-const screenNasdaq = async (): Promise<Asset[]> => {
-    console.log("Starting Nasdaq (Aggressive) screening...");
+const screenAggressive = async (): Promise<Asset[]> => {
+    console.log("Starting S&P 500 (Aggressive) screening...");
     
     // Fetch all available assets to map tickers to full Asset objects later
     const allAssetsResponse: { symbol: string; name: string }[] = await apiFetch(`${FMP_BASE_URL}/stock/list?apikey=${FMP_API_KEY}`);
     const availableAssetsMap = new Map(allAssetsResponse.map((a) => [a.symbol, a]));
 
-    const nasdaq: NasdaqConstituent[] = await apiFetch(`${FMP_BASE_URL}/nasdaq_constituent?apikey=${FMP_API_KEY}`);
-    const tickers = nasdaq.map((c) => c.symbol).slice(0, 100);
+    const sp500: Sp500Constituent[] = await apiFetch(`${FMP_BASE_URL}/sp500_constituent?apikey=${FMP_API_KEY}`);
     
-    console.log(`Found ${tickers.length} Nasdaq tickers, fetching quotes...`);
-    const quotes: FmpQuote[] = await apiFetch(`${FMP_BASE_URL}/quote/${tickers.join(',')}?apikey=${FMP_API_KEY}`);
-    const largeCaps = quotes.filter((q) => q.marketCap > 200e9).map((q) => q.symbol);
-
-    console.log(`Found ${largeCaps.length} large caps, fetching growth data...`);
-    const growthPromises = largeCaps.map((t: string) => apiFetch(`${FMP_BASE_URL}/financial-growth/${t}?period=annual&limit=1&apikey=${FMP_API_KEY}`));
-    const growthResults = await Promise.allSettled(growthPromises);
-
-    const highGrowthTickers = growthResults
-        .map((res, i) => {
-            if (res.status === 'fulfilled' && res.value && res.value[0]) {
-                const growthData: FinancialGrowth = res.value[0];
-                return { ticker: largeCaps[i], growth: growthData.revenueGrowth };
-            }
-            return null;
-        })
-        .filter((item): item is { ticker: string; growth: number } => item !== null)
-        .sort((a, b) => b.growth - a.growth).slice(0, 15).map(item => item.ticker);
+    const growthSectors = new Set(['Technology', 'Communication Services', 'Consumer Cyclical']);
+    const growthStocks = sp500
+        .filter(s => growthSectors.has(s.sector))
+        .slice(0, 15); // Take top 15 growth-sector stocks
     
-    const aggressiveEquities: Asset[] = highGrowthTickers.map((ticker: string) => {
-        const assetInfo = availableAssetsMap.get(ticker);
-        return { ticker, name: assetInfo?.name || ticker, country: 'US', sector: 'Unknown', asset_class: 'EQUITY' };
-    });
+    const aggressiveEquities: Asset[] = growthStocks.map((s) => ({
+        ticker: s.symbol, 
+        name: s.name || availableAssetsMap.get(s.symbol)?.name || s.symbol, 
+        country: 'US', 
+        sector: s.sector, 
+        asset_class: 'EQUITY' 
+    }));
 
     const aggressiveCryptos: Asset[] = [
         { ticker: 'BTC', name: 'Bitcoin', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO' },
@@ -85,7 +72,7 @@ const screenNasdaq = async (): Promise<Asset[]> => {
         { ticker: 'SOL', name: 'Solana', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO' },
     ];
     
-    console.log(`Nasdaq screening complete. Found ${aggressiveEquities.length} equities.`);
+    console.log(`S&P 500 screening complete. Found ${aggressiveEquities.length} equities.`);
     return [...aggressiveEquities, ...aggressiveCryptos];
 };
 
@@ -119,22 +106,22 @@ serve(async (_req) => {
   }
 
   try {
-    const [nasdaqResult, shariahResult] = await Promise.allSettled([
-        screenNasdaq(),
+    const [aggressiveResult, shariahResult] = await Promise.allSettled([
+        screenAggressive(),
         screenShariah()
     ]);
 
     const resultsToCache = [];
 
-    if (nasdaqResult.status === 'fulfilled' && nasdaqResult.value.length > 0) {
+    if (aggressiveResult.status === 'fulfilled' && aggressiveResult.value.length > 0) {
         resultsToCache.push({ 
             key: CACHE_KEYS.AGGRESSIVE, 
-            data: nasdaqResult.value, 
+            data: aggressiveResult.value, 
             last_fetched: new Date().toISOString() 
         });
-        console.log(`Successfully screened ${nasdaqResult.value.length} Aggressive assets.`);
+        console.log(`Successfully screened ${aggressiveResult.value.length} Aggressive assets.`);
     } else {
-        console.error("Nasdaq screening failed:", (nasdaqResult as PromiseRejectedResult).reason);
+        console.error("Aggressive screening failed:", (aggressiveResult as PromiseRejectedResult).reason);
     }
 
     if (shariahResult.status === 'fulfilled' && shariahResult.value.length > 0) {

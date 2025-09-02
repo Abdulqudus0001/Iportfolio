@@ -407,6 +407,9 @@ const PortfolioView: React.FC<PortfolioViewProps> = ({ setCurrentView }) => {
     
     const renderCustomPortfolioBuilder = () => (
         <div className="space-y-4">
+             <div className="p-3 mt-2 bg-blue-50 dark:bg-blue-900/50 border border-blue-200 dark:border-blue-700 rounded-lg text-sm text-blue-800 dark:text-blue-200">
+                <p><span className="font-bold">Custom Mode:</span> You define the exact weights. Use 'Calculate Metrics' below to analyze your specific allocation. To have us generate optimal weights, choose a strategy template like 'Balanced'.</p>
+            </div>
              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <div>
                      <h4 className="font-semibold mb-2">Available Assets</h4>

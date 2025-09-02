@@ -476,23 +476,27 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
           return data.data as Asset[];
       };
       
-      const liveScreenNasdaq = async (): Promise<Asset[]> => {
-          console.log("Fallback: Live screening Nasdaq...");
-          const nasdaq = await apiFetch(`${FMP_BASE_URL}/nasdaq_constituent?apikey=${FMP_API_KEY}`);
-          const tickers = nasdaq.map((c: any) => c.symbol).slice(0, 100);
-          const quotes = await apiFetch(`${FMP_BASE_URL}/quote/${tickers.join(',')}?apikey=${FMP_API_KEY}`);
-          const largeCaps = quotes.filter((q: any) => q.marketCap > 200e9).map((q: any) => q.symbol);
+      const liveScreenAggressive = async (): Promise<Asset[]> => {
+          console.log("Fallback: Live screening S&P 500 for aggressive assets...");
+          const sp500: { symbol: string; name: string; sector: string }[] = await apiFetch(`${FMP_BASE_URL}/sp500_constituent?apikey=${FMP_API_KEY}`);
           
-          const growthPromises = largeCaps.map((t: string) => apiFetch(`${FMP_BASE_URL}/financial-growth/${t}?period=annual&limit=1&apikey=${FMP_API_KEY}`));
-          const growthResults = await Promise.allSettled(growthPromises);
+          const growthSectors = new Set(['Technology', 'Communication Services', 'Consumer Cyclical']);
+          const growthStocks = sp500
+              .filter(s => growthSectors.has(s.sector))
+              .slice(0, 15) // Take top 15 from the filtered list
+              .map(s => ({ 
+                  ticker: s.symbol, 
+                  name: s.name || s.symbol,
+                  country: 'US', 
+                  sector: s.sector, 
+                  asset_class: 'EQUITY' 
+              }));
 
-          const highGrowthTickers = growthResults
-              .map((res, i) => res.status === 'fulfilled' && res.value[0] ? { ticker: largeCaps[i], growth: res.value[0].revenueGrowth } : null)
-              .filter(Boolean).sort((a: any, b: any) => b.growth - a.growth).slice(0, 15).map((item: any) => item.ticker);
-          
-          const aggressiveEquities = availableAssets.filter((a: Asset) => highGrowthTickers.includes(a.ticker));
           const aggressiveCryptos = availableAssets.filter((a: Asset) => ['BTC', 'ETH', 'SOL'].includes(a.ticker));
-          return [...aggressiveEquities, ...aggressiveCryptos];
+          if (growthStocks.length === 0) { // Super fallback if sp500 fails
+             return availableAssets.filter((a: Asset) => ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'BTC', 'ETH', 'SOL'].includes(a.ticker));
+          }
+          return [...growthStocks, ...aggressiveCryptos];
       };
       
       const liveScreenShariah = async (): Promise<Asset[]> => {
@@ -506,7 +510,7 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
 
       switch (template) {
           case 'Aggressive':
-              selectedAssets = await getCachedTemplateAssets('template-assets-aggressive') ?? await liveScreenNasdaq();
+              selectedAssets = await getCachedTemplateAssets('template-assets-aggressive') ?? await liveScreenAggressive();
               break;
           case 'Shariah':
               selectedAssets = await getCachedTemplateAssets('template-assets-shariah') ?? await liveScreenShariah();
