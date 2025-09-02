@@ -37,6 +37,11 @@ interface BlackLittermanView {
     expected_return_diff: number;
     confidence: number;
 }
+interface ConstraintOptions {
+    maxAssetWeight?: number;
+    maxSectorWeight?: number;
+}
+
 type DataSource = 'live' | 'cache' | 'static';
 interface ServiceResponse<T> { data: T; source: DataSource; }
 
@@ -289,8 +294,6 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
   }, TTL_6_HOURS),
 
   getAssetPriceHistory: async ({ ticker }) => withCache(`price-history-${ticker}`, async () => {
-    // A more robust way to check if an asset is a cryptocurrency by checking the master asset list.
-    // This is better than relying on a small, hardcoded list.
     const allAssetsResponse = await handlers.getAvailableAssets({});
     const allAssets: Asset[] = allAssetsResponse.data.assets;
     const assetInfo = allAssets.find((a: Asset) => a.ticker === ticker);
@@ -430,7 +433,6 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
     return new ReadableStream({
       async start(controller) {
         for await (const chunk of stream) {
-          // FIX: Per Gemini API guidelines, the `.text` accessor on a streaming chunk is a property.
           const text = chunk.text;
           if (text) controller.enqueue(new TextEncoder().encode(text));
         }
@@ -450,12 +452,53 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
     };
     return { data: result, source: 'live' };
   },
-  generateAndOptimizePortfolio: async ({ template, optimizationModel, runner }) => {
-    const availableAssets = (await handlers.getAvailableAssets()).data.assets;
+  generateAndOptimizePortfolio: async ({ template, optimizationModel, runner, constraints }) => {
+    const { data: { assets: availableAssets } } = await handlers.getAvailableAssets({});
     let selectedAssets: Asset[] = [];
-    if (template === 'Aggressive') selectedAssets = [...availableAssets.filter(a => a.sector === 'Technology').slice(0, 3), ...availableAssets.filter(a => a.asset_class === 'CRYPTO').slice(0, 2)];
-    else selectedAssets = availableAssets.filter(a => ['SPY', 'QQQ', 'AGG', 'GLD'].includes(a.ticker));
-    if (selectedAssets.length < 2) selectedAssets = staticData.assets.slice(0, 4);
+
+    switch (template) {
+        case 'Aggressive': {
+            const nasdaq = await apiFetch(`${FMP_BASE_URL}/nasdaq_constituent?apikey=${FMP_API_KEY}`);
+            const tickers = nasdaq.map((c: any) => c.symbol).slice(0, 100);
+            const quotes = await apiFetch(`${FMP_BASE_URL}/quote/${tickers.join(',')}?apikey=${FMP_API_KEY}`);
+            const largeCaps = quotes.filter((q: any) => q.marketCap > 200e9).map((q: any) => q.symbol);
+            
+            const growthPromises = largeCaps.map((t: string) => apiFetch(`${FMP_BASE_URL}/financial-growth/${t}?period=annual&limit=1&apikey=${FMP_API_KEY}`));
+            const growthResults = await Promise.allSettled(growthPromises);
+
+            const highGrowth = growthResults
+                .map((res, i) => res.status === 'fulfilled' && res.value[0] ? { ticker: largeCaps[i], growth: res.value[0].revenueGrowth } : null)
+                .filter(Boolean)
+                .sort((a, b) => b.growth - a.growth)
+                .slice(0, 15)
+                .map(item => item.ticker);
+
+            const aggressiveEquities = availableAssets.filter(a => highGrowth.includes(a.ticker));
+            const aggressiveCryptos = availableAssets.filter(a => ['BTC', 'ETH', 'SOL'].includes(a.ticker));
+            selectedAssets = [...aggressiveEquities, ...aggressiveCryptos];
+            break;
+        }
+        case 'Balanced': {
+            const tickersToUse = ['SPY', 'AGG', 'GLD', 'IEFA', 'JNJ', 'PG'];
+            selectedAssets = availableAssets.filter(a => tickersToUse.includes(a.ticker));
+            break;
+        }
+        case 'Shariah': {
+            const compliant = await apiFetch(`https://financialmodelingprep.com/api/v4/shariah-screener?country=US&apikey=${FMP_API_KEY}`);
+            const tickers = compliant.map((c: any) => c.symbol).slice(0, 100);
+            const quotes = await apiFetch(`${FMP_BASE_URL}/quote/${tickers.join(',')}?apikey=${FMP_API_KEY}`);
+            const largestCompliant = quotes
+                .sort((a: any, b: any) => b.marketCap - a.marketCap)
+                .slice(0, 20)
+                .map((q: any) => q.symbol);
+            selectedAssets = availableAssets.filter(a => largestCompliant.includes(a.ticker));
+            break;
+        }
+    }
+    
+    if (selectedAssets.length < 2) {
+        selectedAssets = staticAssetsList.filter(a => ['SPY', 'QQQ', 'AGG', 'GLD'].includes(a.ticker));
+    }
     
     const { meanReturns, covMatrix, validAssets } = await getHistoricalDataForAssets(selectedAssets);
 
@@ -466,16 +509,25 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
         return { bestSharpe: result, simulations: [], averageWeights: result.weights };
     }
 
-    // MCMC Simulation
     const simulations = [];
     let bestSharpePortfolio = { sharpeRatio: -Infinity, weights: [], returns: 0, volatility: 0 };
     let minVolatilityPortfolio = { volatility: Infinity, weights: [], returns: 0, sharpeRatio: 0 };
 
-    for (let i = 0; i < 5000; i++) {
+    for (let i = 0; i < 7500; i++) {
         const rand = Array.from({ length: validAssets.length }, () => Math.random());
         const total = rand.reduce((a, b) => a + b, 0);
         if (total === 0) continue;
-        const weights = rand.map(r => r / total);
+        let weights = rand.map(r => r / total);
+        
+        // --- APPLY CONSTRAINTS ---
+        if (constraints?.maxAssetWeight && weights.some(w => w > constraints.maxAssetWeight)) continue;
+        if (constraints?.maxSectorWeight) {
+            const sectorWeights: Record<string, number> = {};
+            validAssets.forEach((asset, i) => {
+                sectorWeights[asset.sector] = (sectorWeights[asset.sector] || 0) + weights[i];
+            });
+            if (Object.values(sectorWeights).some(sw => sw > constraints.maxSectorWeight)) continue;
+        }
         
         const { returns, volatility, sharpeRatio } = calculatePortfolioMetrics(weights, meanReturns, covMatrix);
         simulations.push({ returns, volatility, sharpeRatio });
@@ -495,20 +547,20 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
   
   runBlackLittermanOptimization: async ({ assets, views, currency }: { assets: Asset[], views: BlackLittermanView[], currency: string }) => {
     const { covMatrix, validAssets } = await getHistoricalDataForAssets(assets);
-    
     if (validAssets.length < 2) throw new Error("Black-Litterman requires at least two assets with sufficient historical data.");
     
     const riskAversion = 2.5;
-    const tau = 0.05;
+    const tau = 0.05; // Scalar representing uncertainty in prior estimates
 
+    // 1. Calculate Equilibrium Returns (Prior)
     const equalWeights = Array(validAssets.length).fill(1 / validAssets.length);
     const equilibriumReturns = scale(multiply(covMatrix, transpose([equalWeights])), riskAversion)[0];
 
     const numAssets = validAssets.length;
     const numViews = views.length;
+    // 2. Construct P (picks assets for views) and Q (expected returns for views) matrices
     const P = Array(numViews).fill(0).map(() => Array(numAssets).fill(0));
     const Q = views.map(view => view.expected_return_diff);
-    
     const assetIndexMap = new Map(validAssets.map((asset, i) => [asset.ticker, i]));
 
     views.forEach((view, i) => {
@@ -518,16 +570,18 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
         if (index2 !== undefined) P[i][index2] = view.direction === 'outperform' ? -1 : 1;
     });
 
-    const tauSigma = scale(covMatrix, tau);
-    const P_tauSigma_PT = multiply(P, multiply(tauSigma, transpose(P)));
-    const Omega = P_tauSigma_PT.map((row, i) => row.map((val, j) => i === j ? val / (views[i].confidence || 0.5) : 0));
+    // 3. Construct Omega (uncertainty of views) matrix
+    const P_tauSigma_PT = multiply(P, multiply(scale(covMatrix, tau), transpose(P)));
+    const Omega = P_tauSigma_PT.map((row, i) => row.map((val, j) => (i === j ? val / (views[i].confidence || 0.5) : 0)));
 
-    const tauSigmaInv = invert(tauSigma);
+    // 4. Calculate posterior returns using Black-Litterman formula
+    const tauSigmaInv = invert(scale(covMatrix, tau));
     const OmegaInv = invert(Omega);
     
     const term1_part1 = tauSigmaInv;
     const term1_part2 = multiply(transpose(P), multiply(OmegaInv, P));
-    const term1 = invert(add(term1_part1, term1_part2));
+    const term1_inv = add(term1_part1, term1_part2);
+    const term1 = invert(term1_inv);
 
     const term2_part1 = multiply(tauSigmaInv, transpose([equilibriumReturns]));
     const term2_part2 = multiply(transpose(P), multiply(OmegaInv, transpose([Q])));
@@ -536,10 +590,11 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
     const posteriorReturnsMatrix = multiply(term1, term2);
     const posteriorReturns = transpose(posteriorReturnsMatrix)[0];
 
+    // 5. Run MCMC simulation with the new posterior returns
     const simulations = [];
     let bestSharpePortfolio = { sharpeRatio: -Infinity, weights: [], returns: 0, volatility: 0 };
     
-    for (let i = 0; i < 5000; i++) {
+    for (let i = 0; i < 7500; i++) {
         const rand = Array.from({ length: numAssets }, () => Math.random());
         const total = rand.reduce((a, b) => a + b, 0);
         if (total === 0) continue;
@@ -569,13 +624,15 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
   getRiskReturnContribution: async ({ portfolio }) => {
     const { meanReturns, covMatrix, validAssets } = await getHistoricalDataForAssets(portfolio.weights);
     const weights = validAssets.map(a => portfolio.weights.find(w => w.ticker === a.ticker)?.weight || 0);
-    const portfolioVolatility = calculatePortfolioMetrics(weights, meanReturns, covMatrix).volatility;
+    const { volatility: portfolioVolatility } = calculatePortfolioMetrics(weights, meanReturns, covMatrix);
+    
     const contributions = validAssets.map((asset, i) => {
         const marginalContribution = dot(weights, covMatrix[i]) * weights[i];
+        const riskContribution = portfolioVolatility > 0 ? marginalContribution / portfolioVolatility**2 : 0;
         return {
             ticker: asset.ticker,
-            returnContribution: weights[i] * meanReturns[i],
-            riskContribution: (marginalContribution) / portfolioVolatility
+            returnContribution: (weights[i] * meanReturns[i]) / dot(weights, meanReturns),
+            riskContribution: isFinite(riskContribution) ? riskContribution : 0,
         };
     });
     return contributions;
@@ -591,25 +648,34 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
     return { originalReturn, scenarioReturn, impactPercentage: (scenarioReturn / originalReturn) - 1 };
   },
   calculateVaR: async ({ portfolio }) => {
+    const portfolioValue = 100000; // Assume a portfolio value for calculation
     const { returnsMatrix, validAssets } = await getHistoricalDataForAssets(portfolio.weights);
     const weights = validAssets.map(a => portfolio.weights.find(w => w.ticker === a.ticker)?.weight || 0);
+    
     const portfolioDailyReturns: number[] = [];
-    for (let i = 0; i < returnsMatrix[0].length; i++) {
+    const numDays = returnsMatrix[0]?.length || 0;
+
+    for (let i = 0; i < numDays; i++) {
         let dailyReturn = 0;
         for (let j = 0; j < validAssets.length; j++) {
-            dailyReturn += returnsMatrix[j][i] * weights[j];
+            dailyReturn += (returnsMatrix[j][i] || 0) * weights[j];
         }
         portfolioDailyReturns.push(dailyReturn);
     }
+    
     portfolioDailyReturns.sort((a, b) => a - b);
+    
     const var95Index = Math.floor(portfolioDailyReturns.length * 0.05);
-    const var95 = -portfolioDailyReturns[var95Index] * 100000;
-    const losses = portfolioDailyReturns.slice(0, var95Index);
-    const cvar95 = -(losses.reduce((a,b)=>a+b,0) / losses.length) * 100000;
-    return { var95, cvar95, portfolioValue: 100000 };
-  },
+    const var95Value = portfolioDailyReturns[var95Index];
+    const var95 = var95Value ? -var95Value * portfolioValue : 0;
 
-  // Other stubs...
+    const losses = portfolioDailyReturns.slice(0, var95Index);
+    const cvar95Value = losses.length > 0 ? losses.reduce((a, b) => a + b, 0) / losses.length : 0;
+    const cvar95 = -cvar95Value * portfolioValue;
+    
+    return { var95, cvar95, portfolioValue };
+  },
+  
   runFactorAnalysis: async () => ({ beta: 1.15, smb: 0.25, hml: -0.12 }),
   getOptionChain: async({ticker, date}) => withCache(`options-${ticker}-${date}`, async() => {
     const data = await apiFetch(`${FMP_BASE_URL}/stock_option_chain?symbol=${ticker}&apikey=${FMP_API_KEY}`);
@@ -629,12 +695,10 @@ serve(async (req) => {
     if (!handler) throw new Error(`Unknown command: ${command}`);
     const result = await handler(payload);
     
-    // Check if result is a ReadableStream (for Gemini chat)
     if (result instanceof ReadableStream) {
         return new Response(result, { headers: { ...corsHeaders, 'Content-Type': 'text/plain; charset=utf-8' } });
     }
 
-    // Default JSON response
     return new Response(JSON.stringify(result), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   } catch (error) {
     console.error(`Error processing command: ${error.message}`);

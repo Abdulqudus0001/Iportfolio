@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { OptimizationResult, ContributionData } from '../../types';
@@ -52,8 +53,8 @@ const RiskReturnContributionChart: React.FC<RiskReturnContributionChartProps> = 
                     <YAxis tickFormatter={(tick) => `${(tick * 100).toFixed(0)}%`} />
                     <Tooltip formatter={(value: number) => `${(value * 100).toFixed(2)}%`} />
                     <Legend />
-                    <Bar dataKey="returnContribution" fill="#1976D2" name="Return Contribution" />
-                    <Bar dataKey="riskContribution" fill="#F44336" name="Risk Contribution" />
+                    <Bar dataKey="returnContribution" fill="#1976D2" name="Return Contribution (%)" />
+                    <Bar dataKey="riskContribution" fill="#F44336" name="Risk Contribution (%)" />
                 </BarChart>
             </ResponsiveContainer>
         </div>
