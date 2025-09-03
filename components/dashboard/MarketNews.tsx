@@ -21,7 +21,8 @@ const MarketNews: React.FC = () => {
         setError(null);
         try {
             const response = await marketDataService.getMarketNews();
-            setNews(response.data as NewsArticle[]);
+            // FIX: The api-proxy returns the data directly, not wrapped in a `data` object.
+            setNews(response as NewsArticle[]);
         } catch (err) {
             console.error("Error fetching market news:", err);
             setError("Failed to fetch market news. Please try again later.");

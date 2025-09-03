@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Asset, CorrelationData, Currency } from '../../types';
 import { portfolioService } from '../../services/portfolioService';
@@ -16,8 +17,8 @@ const CorrelationMatrix: React.FC<CorrelationMatrixProps> = ({ assets, currency 
     if (assets.length > 1) {
       setLoading(true);
       portfolioService.getCorrelationMatrix(assets, currency)
-        .then(response => {
-          setCorrelationData(response.data);
+        .then(data => {
+          setCorrelationData(data);
           setLoading(false);
         })
         .catch(err => {

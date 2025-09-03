@@ -24,8 +24,9 @@ const DividendTracker: React.FC<DividendTrackerProps> = ({ portfolio }) => {
       let totalIncome = 0;
 
       results.forEach((res, index) => {
-        if (res.status === 'fulfilled' && res.value?.data) {
-          const dividendInfo = res.value.data;
+        // FIX: The api-proxy returns the data directly, not wrapped in a `data` object.
+        if (res.status === 'fulfilled' && res.value) {
+          const dividendInfo = res.value;
           const assetWeight = dividendPayers[index].weight;
           const assetValue = totalPortfolioValue * assetWeight;
           const projectedIncome = assetValue * (dividendInfo.yield ?? 0);

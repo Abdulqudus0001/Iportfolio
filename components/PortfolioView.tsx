@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useUserTier } from '../context/UserTierContext';
 import { Asset, UserTier, OptimizationResult, MCMCResult, PortfolioTemplate, ConstraintOptions, GoalSettings, OptimizationModel, BlackLittermanView, Transaction, View, SavedPortfolio, Currency, CURRENCIES, DataSource } from '../types';
@@ -289,7 +290,7 @@ const PortfolioView: React.FC<PortfolioViewProps> = ({ setCurrentView }) => {
 
             try {
                 const result = await portfolioService.calculatePortfolioMetricsFromCustomWeights(selectedAssets, customWeights, currency);
-                setOptimizationResult(result.data);
+                setOptimizationResult(result);
             } catch (error) {
                 console.error("Custom calculation error:", error);
                 const errorMessage = error instanceof Error ? error.message : String(error);

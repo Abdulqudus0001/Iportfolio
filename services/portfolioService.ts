@@ -1,6 +1,6 @@
-import { Asset, OptimizationResult, MCMCResult, PortfolioAsset, PortfolioTemplate, PriceDataPoint, CorrelationData, ContributionData, ConstraintOptions, BacktestResult, Scenario, ScenarioResult, FactorExposures, VaRResult, TaxLossHarvestingResult, OptimizationModel, BlackLittermanView, SavedPortfolio, Currency, DataSource } from '../types';
+
+import { Asset, OptimizationResult, MCMCResult, PortfolioAsset, PortfolioTemplate, PriceDataPoint, CorrelationData, ContributionData, ConstraintOptions, BacktestResult, Scenario, ScenarioResult, FactorExposures, VaRResult, TaxLossHarvestingResult, OptimizationModel, BlackLittermanView, SavedPortfolio, Currency } from '../types';
 import { supabase } from './supabaseClient';
-import { ServiceResponse } from './marketDataService';
 
 async function invokeApiProxy<T>(command: string, payload?: object): Promise<T> {
     const { data, error } = await supabase.functions.invoke('api-proxy', {
@@ -26,7 +26,7 @@ export const portfolioService = {
     return invokeApiProxy('runBlackLittermanOptimization', { assets, views, currency });
   },
 
-  getCorrelationMatrix(assets: Asset[], currency: Currency): Promise<ServiceResponse<CorrelationData>> {
+  getCorrelationMatrix(assets: Asset[], currency: Currency): Promise<CorrelationData> {
       return invokeApiProxy('getCorrelationMatrix', { assets, currency });
   },
 
@@ -34,7 +34,7 @@ export const portfolioService = {
       return invokeApiProxy('getRiskReturnContribution', { portfolio });
   },
   
-  calculatePortfolioMetricsFromCustomWeights(assets: Asset[], weights: Record<string, number>, currency: Currency): Promise<ServiceResponse<OptimizationResult>> {
+  calculatePortfolioMetricsFromCustomWeights(assets: Asset[], weights: Record<string, number>, currency: Currency): Promise<OptimizationResult> {
       return invokeApiProxy('calculatePortfolioMetricsFromCustomWeights', { assets, weights, currency });
   },
 
