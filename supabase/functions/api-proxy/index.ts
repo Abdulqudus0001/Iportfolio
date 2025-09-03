@@ -48,12 +48,11 @@ interface ServiceResponse<T> { data: T; source: DataSource; }
 
 // --- API & DB CLIENTS ---
 const FMP_API_KEY = Deno.env.get("FMP_API_KEY");
-const ALPHA_VANTAGE_API_KEY = Deno.env.get("ALPHA_VANTAGE_API_KEY");
-const NEWS_API_KEY = Deno.env.get("NEWS_API_KEY");
-const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
-
 const FMP_BASE_URL = 'https://financialmodelingprep.com/api/v3';
 const AV_BASE_URL = 'https://www.alphavantage.co/query';
+const ALPHA_VANTAGE_API_KEY = Deno.env.get("ALPHA_VANTAGE_API_KEY");
+const NEWS_API_KEY = Deno.env.get("NEWS_API_KEY");
+const API_KEY = Deno.env.get("API_KEY"); // Standardized key for Google AI
 
 let supabaseAdmin: SupabaseClient;
 try {
@@ -65,6 +64,9 @@ try {
 } catch (e) {
   console.error("Failed to initialize Supabase admin client:", e.message);
 }
+
+// Lazily initialize AI client to avoid errors on import if key is missing for other commands.
+let ai: GoogleGenAI;
 
 // --- CENTRALIZED CACHING LOGIC ---
 const withCache = async <T>(key: string, fetcher: () => Promise<T>, ttlSeconds: number): Promise<ServiceResponse<T>> => {
@@ -91,17 +93,29 @@ const withCache = async <T>(key: string, fetcher: () => Promise<T>, ttlSeconds: 
     }
   }
 
-  const liveData = await fetcher();
+  try {
+      const liveData = await fetcher();
+      if (!liveData || (Array.isArray(liveData) && liveData.length === 0)) {
+        if(cachedData) return { data: cachedData.data as T, source: 'cache' }; // Serve stale if live fails
+        throw new Error("Live fetch returned no data and no cache is available.");
+      }
+      const { error: upsertError } = await supabaseAdmin
+        .from('api_cache')
+        .upsert({ key, data: liveData, last_fetched: new Date().toISOString() });
+    
+      if (upsertError) {
+        console.error(`Cache write error for key ${key}:`, upsertError.message);
+      }
+      return { data: liveData, source: 'live' };
 
-  const { error: upsertError } = await supabaseAdmin
-    .from('api_cache')
-    .upsert({ key, data: liveData, last_fetched: new Date().toISOString() });
-
-  if (upsertError) {
-    console.error(`Cache write error for key ${key}:`, upsertError.message);
+  } catch (err) {
+      console.error(`Live fetch failed for key ${key}: ${err.message}`);
+      if (cachedData) {
+          console.warn(`Serving stale data for ${key} due to fetch failure.`);
+          return { data: cachedData.data as T, source: 'cache' };
+      }
+      throw err; // Re-throw if no stale data is available
   }
-
-  return { data: liveData, source: 'live' };
 };
 
 
@@ -431,13 +445,23 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
   }, TTL_60_DAYS),
 
   getMarketNews: async () => withCache('market-news', async () => {
-    const data = await apiFetch(`https://newsapi.org/v2/top-headlines?category=business&language=en&pageSize=5&apiKey=${NEWS_API_KEY}`);
-    return (data.articles || []).map((a: any) => ({ title: a.title, source: a.source.name, summary: a.description, url: a.url }));
+    try {
+        const data = await apiFetch(`https://newsapi.org/v2/top-headlines?category=business&language=en&pageSize=5&apiKey=${NEWS_API_KEY}`);
+        return (data.articles || []).map((a: any) => ({ title: a.title, source: a.source.name, summary: a.description, url: a.url }));
+    } catch (e) {
+        console.warn("News API failed, returning static news.", e.message);
+        return staticData.news;
+    }
   }, 3600),
 
   startChatStream: async ({ message, history }) => {
-    if (!GEMINI_API_KEY) throw new Error("Missing GEMINI_API_KEY");
-    const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
+    if (!API_KEY) {
+        throw new Error("AI functionality is disabled. Administrator must set the API_KEY secret in Supabase project settings.");
+    }
+    // Initialize the client on first use
+    if (!ai) {
+        ai = new GoogleGenAI({ apiKey: API_KEY });
+    }
     const model = "gemini-2.5-flash";
     const chat = ai.chats.create({ model, history });
     const stream = await chat.sendMessageStream({ message });
@@ -638,89 +662,100 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
   },
 
   runBacktest: async({ portfolio, timeframe, benchmarkTicker }) => { /* ... existing implementation ... */ return { dates: [], portfolioValues: [], benchmarkValues: [], totalReturn: 0.1, benchmarkReturn: 0.08, maxDrawdown: -0.05 }; },
-  getCorrelationMatrix: async({ assets }) => { const { covMatrix, validAssets } = await getHistoricalDataForAssets(assets); return { data: { assets: validAssets.map(a => a.ticker), matrix: covMatrix }, source: 'live'}; },
+  getCorrelationMatrix: async({ assets }) => { 
+      try {
+        const { covMatrix, validAssets } = await getHistoricalDataForAssets(assets);
+        const stdevs = covMatrix.map((row, i) => Math.sqrt(row[i]));
+        const corrMatrix = covMatrix.map((row, i) => row.map((cell, j) => stdevs[i] > 0 && stdevs[j] > 0 ? cell / (stdevs[i] * stdevs[j]) : 0));
+        return { data: { assets: validAssets.map(a => a.ticker), matrix: corrMatrix }, source: 'live'};
+      } catch (e) {
+          return { data: { assets: [], matrix: [] }, source: 'live' };
+      }
+  },
   getRiskReturnContribution: async ({ portfolio }) => {
-    const { meanReturns, covMatrix, validAssets } = await getHistoricalDataForAssets(portfolio.weights);
-    const weights = validAssets.map(a => portfolio.weights.find(w => w.ticker === a.ticker)?.weight || 0);
-    const { volatility: portfolioVolatility } = calculatePortfolioMetrics(weights, meanReturns, covMatrix);
-    
-    const contributions = validAssets.map((asset, i) => {
-        const marginalContribution = dot(weights, covMatrix[i]) * weights[i];
-        const riskContribution = portfolioVolatility > 0 ? marginalContribution / portfolioVolatility**2 : 0;
-        return {
-            ticker: asset.ticker,
-            returnContribution: (weights[i] * meanReturns[i]) / dot(weights, meanReturns),
-            riskContribution: isFinite(riskContribution) ? riskContribution : 0,
-        };
-    });
-    return contributions;
+    try {
+        const { meanReturns, covMatrix, validAssets } = await getHistoricalDataForAssets(portfolio.weights);
+        const weights = validAssets.map(a => portfolio.weights.find(w => w.ticker === a.ticker)?.weight || 0);
+        const { returns: portfolioReturns, volatility: portfolioVolatility } = calculatePortfolioMetrics(weights, meanReturns, covMatrix);
+        
+        const contributions = validAssets.map((asset, i) => {
+            const marginalContribution = dot(weights, covMatrix[i]) * weights[i];
+            const riskContribution = portfolioVolatility > 0 ? marginalContribution / portfolioVolatility**2 : 0;
+            const returnContribution = portfolioReturns > 0 ? (weights[i] * meanReturns[i]) / portfolioReturns : 0;
+            return {
+                ticker: asset.ticker,
+                returnContribution: isFinite(returnContribution) ? returnContribution : 0,
+                riskContribution: isFinite(riskContribution) ? riskContribution : 0,
+            };
+        });
+        return contributions;
+    } catch(e) {
+        console.error("Risk/Return contribution calc failed:", e.message);
+        return [];
+    }
   },
   runScenarioAnalysis: async ({ portfolio, scenario }: { portfolio: OptimizationResult, scenario: Scenario }) => {
     const { meanReturns, validAssets } = await getHistoricalDataForAssets(portfolio.weights);
-    const originalReturn = dot(validAssets.map(a => portfolio.weights.find(w=>w.ticker===a.ticker)!.weight), meanReturns);
-    const scenarioReturns = meanReturns.map((r, i) => {
-        const asset = validAssets[i];
-        return r * (scenario.impact[asset.sector] || 1);
+    const weights = validAssets.map(a => portfolio.weights.find(w=>w.ticker===a.ticker)!.weight);
+    const originalReturn = dot(weights, meanReturns);
+    const scenarioReturns = meanReturns.map((ret, i) => {
+        const sector = validAssets[i].sector;
+        return ret * (scenario.impact[sector] || 1);
     });
-    const scenarioReturn = dot(validAssets.map(a => portfolio.weights.find(w=>w.ticker===a.ticker)!.weight), scenarioReturns);
-    return { originalReturn, scenarioReturn, impactPercentage: (scenarioReturn / originalReturn) - 1 };
+    const scenarioPortfolioReturn = dot(weights, scenarioReturns);
+    return { 
+        originalReturn,
+        scenarioReturn: scenarioPortfolioReturn,
+        impactPercentage: (scenarioPortfolioReturn / originalReturn) - 1 
+    };
   },
   calculateVaR: async ({ portfolio }) => {
-    const portfolioValue = 100000; // Assume a portfolio value for calculation
     const { returnsMatrix, validAssets } = await getHistoricalDataForAssets(portfolio.weights);
     const weights = validAssets.map(a => portfolio.weights.find(w => w.ticker === a.ticker)?.weight || 0);
-    
-    const portfolioDailyReturns: number[] = [];
-    const numDays = returnsMatrix[0]?.length || 0;
-
-    for (let i = 0; i < numDays; i++) {
-        let dailyReturn = 0;
-        for (let j = 0; j < validAssets.length; j++) {
-            dailyReturn += (returnsMatrix[j][i] || 0) * weights[j];
-        }
-        portfolioDailyReturns.push(dailyReturn);
-    }
+    const portfolioDailyReturns = transpose(returnsMatrix).map(dailyReturns => dot(weights, dailyReturns));
     
     portfolioDailyReturns.sort((a, b) => a - b);
+    const varIndex = Math.floor(portfolioDailyReturns.length * 0.05);
+    const var95 = -portfolioDailyReturns[varIndex] * 10000;
+    const cvar95 = -portfolioDailyReturns.slice(0, varIndex).reduce((a,b)=>a+b,0) / varIndex * 10000;
     
-    const var95Index = Math.floor(portfolioDailyReturns.length * 0.05);
-    const var95Value = portfolioDailyReturns[var95Index];
-    const var95 = var95Value ? -var95Value * portfolioValue : 0;
-
-    const losses = portfolioDailyReturns.slice(0, var95Index);
-    const cvar95Value = losses.length > 0 ? losses.reduce((a, b) => a + b, 0) / losses.length : 0;
-    const cvar95 = -cvar95Value * portfolioValue;
-    
-    return { var95, cvar95, portfolioValue };
+    return { var95, cvar95, portfolioValue: 10000 };
   },
-  
-  runFactorAnalysis: async () => ({ beta: 1.15, smb: 0.25, hml: -0.12 }),
-  getOptionChain: async({ticker, date}) => withCache(`options-${ticker}-${date}`, async() => {
-    const data = await apiFetch(`${FMP_BASE_URL}/stock_option_chain?symbol=${ticker}&apikey=${FMP_API_KEY}`);
-    return (data || []).map((o: any) => ({ expirationDate: o.expirationDate, strikePrice: o.strike, lastPrice: o.lastPrice, type: o.optionType }));
-  }, 3600),
-  generateRebalancePlan: async () => ([]),
+  getOptionChain: async({ ticker, date }) => withCache(`options-${ticker}-${date}`, async() => {
+      const data = await apiFetch(`${FMP_BASE_URL}/options-chain/${ticker}?expirationDate=${date}&apikey=${FMP_API_KEY}`);
+      return (data || []).map((o: any) => ({
+          expirationDate: o.expirationDate,
+          strikePrice: o.strike,
+          lastPrice: o.lastPrice,
+          type: o.optionType
+      }));
+  }, TTL_6_HOURS)
 };
-
 
 // --- MAIN SERVER ---
 serve(async (req) => {
-  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders });
+  }
+
   try {
     const { command, payload } = await req.json();
-    console.log(`Handling command: ${command}`);
-    const handler = handlers[command];
-    if (!handler) throw new Error(`Unknown command: ${command}`);
-    const result = await handler(payload);
-    
-    if (result instanceof ReadableStream) {
-        return new Response(result, { headers: { ...corsHeaders, 'Content-Type': 'text/plain; charset=utf-8' } });
+    if (!handlers[command]) {
+      throw new Error(`Command not found: ${command}`);
     }
-
-    return new Response(JSON.stringify(result), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    const result = await handlers[command](payload);
+    
+    // Check if the result is a ReadableStream and handle it appropriately
+    if (result instanceof ReadableStream) {
+        return new Response(result, { headers: { ...corsHeaders, 'Content-Type': 'text/event-stream' } });
+    }
+    
+    return new Response(JSON.stringify(result), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }});
   } catch (error) {
-    console.error(`Error processing command: ${error.message}`);
-    const status = (error as any).status || 500;
-    return new Response(JSON.stringify({ error: error.message }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status });
+    console.error(`Error processing command:`, error.message);
+    return new Response(JSON.stringify({ error: error.message }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      status: 400,
+    });
   }
 });

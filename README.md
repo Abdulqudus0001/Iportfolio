@@ -104,7 +104,7 @@ Follow these instructions to deploy the application and its backend functions us
     supabase secrets set FMP_API_KEY="your_financial_modeling_prep_key"
     supabase secrets set ALPHA_VANTAGE_API_KEY="your_alpha_vantage_key"
     supabase secrets set NEWS_API_KEY="your_newsapi_key"
-    supabase secrets set GEMINI_API_KEY="your_google_gemini_key"
+    supabase secrets set API_KEY="your_google_gemini_key"
     ```
 
 5.  **Create the Cache Table:**
