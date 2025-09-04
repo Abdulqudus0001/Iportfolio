@@ -310,18 +310,6 @@ const AssetBrowser: React.FC<AssetBrowserProps> = ({ openAiChat }) => {
                     <div>
                         <h2 className="text-2xl font-bold text-brand-primary">{selectedAsset.name} ({selectedAsset.ticker})</h2>
                         <p className="text-light-text-secondary dark:text-dark-text-secondary">{selectedAsset.sector} - {selectedAsset.country}</p>
-                         {isProOrHigher && selectedAsset.asset_class === 'EQUITY' && (
-                            <div className="mt-2">
-                                <div className="flex items-center gap-1">
-                                    <span className={`text-xs font-semibold px-2 py-1 rounded-full ${selectedAsset.is_shariah_compliant ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                                        Shariah Compliant
-                                    </span>
-                                    <button onClick={handleShariahExplain} disabled={isAnalyzingShariah} className="text-xs text-blue-500 hover:underline disabled:opacity-50 disabled:cursor-wait">
-                                        {isAnalyzingShariah ? 'Analyzing...' : '(Why?)'}
-                                    </button>
-                                </div>
-                            </div>
-                        )}
                     </div>
                      <div className="text-right">
                          <p className="text-2xl font-bold">{assetData?.summary ? `$${assetData.summary.close.toFixed(2)}` : '...'}</p>

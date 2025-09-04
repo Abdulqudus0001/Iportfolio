@@ -51,7 +51,7 @@ const ALPHA_VANTAGE_API_KEY = Deno.env.get("ALPHA_VANTAGE_API_KEY");
 const NEWS_API_KEY = Deno.env.get("NEWS_API_KEY");
 const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
 
-const FMP_BASE_URL = 'https://financialmodelingprep.com/api/v3';
+const FMP_BASE_URL = 'https://financialmodelingprep.com/stable';
 const AV_BASE_URL = 'https://www.alphavantage.co/query';
 
 let supabaseAdmin: SupabaseClient;
@@ -342,26 +342,39 @@ const calculatePortfolioMetrics = (weights: number[], meanReturns: number[], cov
 const handlers: Record<string, (payload: any) => Promise<any>> = {
   getAvailableAssets: async () => withCache('available-assets', async () => {
     try {
-        const screenerData = await apiFetch(`${FMP_BASE_URL}/stock-screener?limit=2500&exchange=NASDAQ,NYSE,AMEX&isActivelyTrading=true&apikey=${FMP_API_KEY}`);
-        const cryptoData = await apiFetch(`${FMP_BASE_URL}/symbol/available-cryptocurrencies?apikey=${FMP_API_KEY}`);
+        const stockListDataPromise = apiFetch(`${FMP_BASE_URL}/stock-list?apikey=${FMP_API_KEY}`);
+        const cryptoListDataPromise = apiFetch(`${FMP_BASE_URL}/cryptocurrency-list?apikey=${FMP_API_KEY}`);
         
-        const stocks: Asset[] = screenerData
-            .filter((s: any) => s.marketCap > 0 && s.price > 1) // Basic quality filter
+        const [stockListData, cryptoListData] = await Promise.all([stockListDataPromise, cryptoListDataPromise]);
+        
+        const stocks: Asset[] = stockListData
+            .filter((s: any) => s.price && s.price > 1 && s.exchangeShortName && ['NASDAQ', 'NYSE'].includes(s.exchangeShortName))
+            .slice(0, 500) // Provide a sizable but performant list
             .map((s: any) => ({
-                ticker: s.symbol, name: s.companyName, country: 'US', sector: s.sector || 'N/A',
-                asset_class: 'EQUITY', price: s.price, is_shariah_compliant: s.isShariahCompliant
+                ticker: s.symbol,
+                name: s.name,
+                country: 'US',
+                sector: 'N/A', // Not available in this endpoint
+                asset_class: 'EQUITY',
+                price: s.price,
             }));
             
-        const cryptos: Asset[] = cryptoData.slice(0, 200).map((c: any) => ({
-            ticker: c.symbol.replace('USD', ''), name: c.name, country: 'CRYPTO', sector: 'Cryptocurrency',
-            asset_class: 'CRYPTO', price: c.price
+        const cryptos: Asset[] = cryptoListData.slice(0, 97).map((c: any) => ({
+            ticker: c.symbol.replace('USD', ''), // FMP uses BTCUSD, app uses BTC
+            name: c.name,
+            country: 'CRYPTO',
+            sector: 'Cryptocurrency',
+            asset_class: 'CRYPTO',
+            price: c.price,
         }));
 
-        if (stocks.length < 100) throw new Error("FMP returned insufficient stock data.");
+        if (stocks.length < 50) {
+            throw new Error("FMP returned insufficient stock data from /stock-list.");
+        }
 
         return { assets: [...stocks, ...cryptos] };
     } catch (e) {
-        console.warn("FMP asset list failed, using high-quality static fallback.", e.message);
+        console.warn("Live asset list fetch failed, using high-quality static fallback.", e.message);
         return { assets: staticAssetsList };
     }
   }, TTL_6_HOURS),
@@ -374,9 +387,9 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
 
     const fmpTicker = isCrypto ? `${ticker}USD` : ticker;
     try {
-        const url = `${FMP_BASE_URL}/historical-price-full/${fmpTicker}?apikey=${FMP_API_KEY}`;
+        const url = `${FMP_BASE_URL}/historical-price-eod/full?symbol=${fmpTicker}&apikey=${FMP_API_KEY}`;
         const data = await apiFetch(url);
-        const history = (data?.historical || []).map((d: any) => ({ date: d.date, price: d.close })).reverse();
+        const history = (data?.historical || data || []).map((d: any) => ({ date: d.date, price: d.close })).reverse();
         if (history.length > 0) return history;
         throw new Error("Empty history from FMP");
     } catch (fmpError) {
@@ -398,200 +411,193 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
     const allAssetsResponse = await handlers.getAvailableAssets({});
     const assetInfo = allAssetsResponse.data.assets.find((a: Asset) => a.ticker === ticker);
     const isCrypto = assetInfo?.asset_class === 'CRYPTO';
+    const fmpTicker = isCrypto ? `${ticker}USD` : ticker;
 
-    // 1. Try FMP (Primary)
     try {
-        const fmpTicker = isCrypto ? `${ticker}USD` : ticker;
-        const data = await apiFetch(`${FMP_BASE_URL}/quote/${fmpTicker}?apikey=${FMP_API_KEY}`);
-        const quote = data[0] || {};
-        if (quote.price) {
+        const data = await apiFetch(`${FMP_BASE_URL}/quote?symbol=${fmpTicker}&apikey=${FMP_API_KEY}`);
+        const quote = data[0];
+        if (quote && quote.price != null) {
             return {
-                open: quote.open ?? 0, close: quote.price ?? 0, high: quote.dayHigh ?? 0,
+                open: quote.open ?? 0, close: quote.price, high: quote.dayHigh ?? 0,
                 low: quote.dayLow ?? 0, volume: formatVolume(quote.volume)
             };
         }
-        throw new Error("No valid price in FMP response");
     } catch (fmpError) {
-        console.warn(`FMP summary failed for ${ticker}, falling back to AV. Error: ${fmpError.message}`);
-        
-        // 2. Try Alpha Vantage (Secondary)
-        try {
-            if (isCrypto) {
-                const url = `${AV_BASE_URL}?function=DIGITAL_CURRENCY_DAILY&symbol=${ticker}&market=USD&apikey=${ALPHA_VANTAGE_API_KEY}`;
-                const data = await apiFetch(url);
-                const timeSeriesKey = Object.keys(data).find(k => k.includes('Digital Currency Daily'));
-                if (!timeSeriesKey || !data[timeSeriesKey]) throw new Error(`Invalid AV crypto response for ${ticker}`);
-                const timeSeries = data[timeSeriesKey];
-                const latestDate = Object.keys(timeSeries)[0];
-                const latestData = timeSeries[latestDate];
-                if (!latestData) throw new Error(`No daily data in AV crypto response for ${ticker}`);
-                return {
-                    open: parseFloat(latestData['1a. open (USD)']), close: parseFloat(latestData['4a. close (USD)']),
-                    high: parseFloat(latestData['2a. high (USD)']), low: parseFloat(latestData['3a. low (USD)']),
-                    volume: formatVolume(latestData['5. volume'])
-                };
-            } else {
-                const url = `${AV_BASE_URL}?function=GLOBAL_QUOTE&symbol=${ticker}&apikey=${ALPHA_VANTAGE_API_KEY}`;
-                const data = await apiFetch(url);
-                const quote = data['Global Quote'];
-                if (!quote || Object.keys(quote).length === 0 || !quote['05. price']) throw new Error(`Invalid AV response for ${ticker}`);
-                return {
-                    open: parseFloat(quote['02. open']), close: parseFloat(quote['05. price']),
-                    high: parseFloat(quote['03. high']), low: parseFloat(quote['04. low']),
-                    volume: formatVolume(quote['06. volume'])
-                };
-            }
-        } catch (avError) {
-            console.warn(`AV summary failed for ${ticker}, falling back to static. Error: ${avError.message}`);
-            
-            // 3. Fallback to Static Data (Tertiary)
-            const staticAsset = staticAssetsList.find(a => a.ticker === ticker);
-            if (staticAsset && staticAsset.price) {
-                const price = staticAsset.price;
-                return {
-                    open: price * 0.995, close: price, high: price * 1.005, low: price * 0.99,
-                    volume: 'Static'
-                };
-            }
-            throw new Error(`Could not retrieve price summary for ${ticker} from any source.`);
+        console.warn(`FMP summary failed for ${ticker}: ${fmpError.message}`);
+    }
+
+    console.warn(`FMP summary failed or returned no data for ${ticker}, falling back to AV.`);
+    try {
+        if (isCrypto) {
+            const url = `${AV_BASE_URL}?function=DIGITAL_CURRENCY_DAILY&symbol=${ticker}&market=USD&apikey=${ALPHA_VANTAGE_API_KEY}`;
+            const data = await apiFetch(url);
+            const timeSeries = data['Time Series (Digital Currency Daily)'];
+            if (!timeSeries) throw new Error(`Invalid AV crypto response for ${ticker}`);
+            const latestData = timeSeries[Object.keys(timeSeries)[0]];
+            return {
+                open: parseFloat(latestData['1a. open (USD)']), close: parseFloat(latestData['4a. close (USD)']),
+                high: parseFloat(latestData['2a. high (USD)']), low: parseFloat(latestData['3a. low (USD)']),
+                volume: formatVolume(latestData['5. volume'])
+            };
+        } else {
+            const url = `${AV_BASE_URL}?function=GLOBAL_QUOTE&symbol=${ticker}&apikey=${ALPHA_VANTAGE_API_KEY}`;
+            const data = await apiFetch(url);
+            const quote = data['Global Quote'];
+            if (!quote || quote['05. price'] === undefined) throw new Error(`Invalid AV response for ${ticker}`);
+            return {
+                open: parseFloat(quote['02. open']), close: parseFloat(quote['05. price']),
+                high: parseFloat(quote['03. high']), low: parseFloat(quote['04. low']),
+                volume: formatVolume(quote['06. volume'])
+            };
         }
+    } catch (avError) {
+        console.warn(`AV summary failed for ${ticker}, falling back to static. Error: ${avError.message}`);
+        const staticAsset = staticAssetsList.find(a => a.ticker === ticker);
+        if (staticAsset?.price) {
+            const price = staticAsset.price;
+            return {
+                open: price * 0.995, close: price, high: price * 1.005, low: price * 0.99, volume: 'Static'
+            };
+        }
+        throw new Error(`Could not retrieve price summary for ${ticker} from any source.`);
     }
   }, TTL_15_MINUTES),
 
   getFinancialRatios: async ({ ticker }) => withCache(`ratios-${ticker}`, async () => {
-    // 1. Try FMP (Primary)
-    try {
-        const results = await Promise.allSettled([
-            apiFetch(`${FMP_BASE_URL}/ratios-ttm/${ticker}?apikey=${FMP_API_KEY}`),
-            apiFetch(`${FMP_BASE_URL}/profile/${ticker}?apikey=${FMP_API_KEY}`),
-            apiFetch(`${FMP_BASE_URL}/quote/${ticker}?apikey=${FMP_API_KEY}`)
-        ]);
-        
-        const ratiosData = results[0].status === 'fulfilled' ? results[0].value : [];
-        const profileData = results[1].status === 'fulfilled' ? results[1].value : [];
-        const quoteData = results[2].status === 'fulfilled' ? results[2].value : [];
-        const ratios = ratiosData[0] || {};
-        const profile = profileData[0] || {};
-        const quote = quoteData[0] || {};
-        
-        if (!ratios.peRatioTTM) throw new Error(`Insufficient ratio data from FMP for ${ticker}`);
-
-        const finalRatios = [
-            { label: 'P/E (TTM)', value: ratios.peRatioTTM?.toFixed(2) },
-            { label: 'P/B', value: ratios.priceToBookRatioTTM?.toFixed(2) },
-            { label: 'Dividend Yield', value: ratios.dividendYieldTTM != null ? `${(ratios.dividendYieldTTM * 100).toFixed(2)}%` : undefined },
-            { label: 'Market Cap', value: formatLargeNumber(quote.marketCap) },
-            { label: 'EPS (TTM)', value: ratios.epsTTM?.toFixed(2) },
-            { label: 'Beta', value: profile.beta?.toFixed(2) }
-        ];
-        
-        return finalRatios.map(r => ({ ...r, value: r.value ?? 'N/A' })).filter(r => r.value !== 'N/A');
-    } catch (fmpError) {
-        console.warn(`FMP ratios failed for ${ticker}, falling back to AV. Error: ${fmpError.message}`);
-        
-        // 2. Try Alpha Vantage (Secondary)
+    const fetchFmpRatios = async () => {
+        const finalRatios: { label: string; value: string | number }[] = [];
         try {
-            const data = await apiFetch(`${AV_BASE_URL}?function=OVERVIEW&symbol=${ticker}&apikey=${ALPHA_VANTAGE_API_KEY}`);
-            if (!data.PERatio || data.PERatio === "None") throw new Error(`Invalid AV overview response for ${ticker}`);
-            const ratios = [
-                { label: 'P/E (TTM)', value: parseFloat(data.PERatio).toFixed(2) },
-                { label: 'P/B', value: parseFloat(data.PriceToBookRatio).toFixed(2) },
-                { label: 'Dividend Yield', value: `${(parseFloat(data.DividendYield) * 100).toFixed(2)}%` },
-                { label: 'Market Cap', value: formatLargeNumber(data.MarketCapitalization) },
-                { label: 'EPS (TTM)', value: parseFloat(data.EPS).toFixed(2) },
-                { label: 'Beta', value: parseFloat(data.Beta).toFixed(2) }
-            ];
-            return ratios.map(r => ({ ...r, value: r.value === 'NaN' || !r.value ? 'N/A' : r.value })).filter(r => r.value !== 'N/A');
-        } catch (avError) {
-            console.warn(`AV ratios failed for ${ticker}, falling back to static. Error: ${avError.message}`);
-            // 3. Fallback to Static (Tertiary)
-            return [];
+            const [ratiosResult, profileResult, quoteResult] = await Promise.allSettled([
+                apiFetch(`${FMP_BASE_URL}/ratios-ttm?symbol=${ticker}&apikey=${FMP_API_KEY}`),
+                apiFetch(`${FMP_BASE_URL}/profile?symbol=${ticker}&apikey=${FMP_API_KEY}`),
+                apiFetch(`${FMP_BASE_URL}/quote?symbol=${ticker}&apikey=${FMP_API_KEY}`)
+            ]);
+
+            const ratios = (ratiosResult.status === 'fulfilled' && ratiosResult.value[0]) ? ratiosResult.value[0] : {};
+            const profile = (profileResult.status === 'fulfilled' && profileResult.value[0]) ? profileResult.value[0] : {};
+            const quote = (quoteResult.status === 'fulfilled' && quoteResult.value[0]) ? quoteResult.value[0] : {};
+
+            if (ratios.peRatioTTM) finalRatios.push({ label: 'P/E (TTM)', value: ratios.peRatioTTM.toFixed(2) });
+            if (ratios.priceToBookRatioTTM) finalRatios.push({ label: 'P/B', value: ratios.priceToBookRatioTTM.toFixed(2) });
+            if (ratios.dividendYieldTTM) finalRatios.push({ label: 'Dividend Yield', value: `${(ratios.dividendYieldTTM * 100).toFixed(2)}%` });
+            if (quote.marketCap) finalRatios.push({ label: 'Market Cap', value: formatLargeNumber(quote.marketCap) });
+            if (ratios.epsTTM) finalRatios.push({ label: 'EPS (TTM)', value: ratios.epsTTM.toFixed(2) });
+            if (profile.beta) finalRatios.push({ label: 'Beta', value: profile.beta.toFixed(2) });
+
+        } catch (e) {
+            console.warn(`An error occurred during FMP ratio fetch for ${ticker}: ${e.message}`);
         }
+        return finalRatios;
+    };
+
+    let fmpData = await fetchFmpRatios();
+    if (fmpData.length > 0) {
+        return fmpData;
+    }
+
+    console.warn(`FMP provided no ratio data for ${ticker}, falling back to AV.`);
+    try {
+        const data = await apiFetch(`${AV_BASE_URL}?function=OVERVIEW&symbol=${ticker}&apikey=${ALPHA_VANTAGE_API_KEY}`);
+        if (!data.PERatio || data.PERatio === "None") throw new Error(`Invalid AV overview response for ${ticker}`);
+        const avRatios = [];
+        if (data.PERatio && data.PERatio !== "None") avRatios.push({ label: 'P/E (TTM)', value: parseFloat(data.PERatio).toFixed(2) });
+        if (data.PriceToBookRatio && data.PriceToBookRatio !== "None") avRatios.push({ label: 'P/B', value: parseFloat(data.PriceToBookRatio).toFixed(2) });
+        if (data.DividendYield && data.DividendYield !== "None") avRatios.push({ label: 'Dividend Yield', value: `${(parseFloat(data.DividendYield) * 100).toFixed(2)}%` });
+        if (data.MarketCapitalization && data.MarketCapitalization !== "None") avRatios.push({ label: 'Market Cap', value: formatLargeNumber(data.MarketCapitalization) });
+        if (data.EPS && data.EPS !== "None") avRatios.push({ label: 'EPS (TTM)', value: parseFloat(data.EPS).toFixed(2) });
+        if (data.Beta && data.Beta !== "None") avRatios.push({ label: 'Beta', value: parseFloat(data.Beta).toFixed(2) });
+        
+        if (avRatios.length > 0) return avRatios;
+        throw new Error("AV returned no usable ratio data.");
+
+    } catch (avError) {
+        console.warn(`AV ratios also failed for ${ticker}, returning empty. Error: ${avError.message}`);
+        return [];
     }
   }, TTL_60_DAYS),
 
   getFinancialsSnapshot: async ({ ticker }) => withCache(`financials-${ticker}`, async () => {
-    // 1. Try FMP (Primary)
-    try {
-        const results = await Promise.allSettled([
-            apiFetch(`${FMP_BASE_URL}/income-statement/${ticker}?period=annual&limit=1&apikey=${FMP_API_KEY}`),
-            apiFetch(`${FMP_BASE_URL}/balance-sheet-statement/${ticker}?period=annual&limit=1&apikey=${FMP_API_KEY}`),
-            apiFetch(`${FMP_BASE_URL}/cash-flow-statement/${ticker}?period=annual&limit=1&apikey=${FMP_API_KEY}`)
-        ]);
-        const incomeData = results[0].status === 'fulfilled' ? results[0].value : [];
-        const balanceData = results[1].status === 'fulfilled' ? results[1].value : [];
-        const cashflowData = results[2].status === 'fulfilled' ? results[2].value : [];
-        const incomeStatement = incomeData[0] || {};
-        if (!incomeStatement.revenue) throw new Error("No revenue data from FMP financials");
-        const balanceSheet = balanceData[0] || {};
-        const cashFlowStatement = cashflowData[0] || {};
-        return {
-            income: [
-                { metric: 'Revenue', value: formatLargeNumber(incomeStatement.revenue) },
-                { metric: 'Net Income', value: formatLargeNumber(incomeStatement.netIncome) },
-            ],
-            balanceSheet: [
-                { metric: 'Total Assets', value: formatLargeNumber(balanceSheet.totalAssets) },
-                { metric: 'Total Liabilities', value: formatLargeNumber(balanceSheet.totalLiabilities) },
-            ],
-            cashFlow: [
-                { metric: 'Operating Cash Flow', value: formatLargeNumber(cashFlowStatement.operatingCashFlow) },
-            ],
-            asOf: incomeStatement.date || 'N/A'
-        };
-    } catch (fmpError) {
-        console.warn(`FMP financials failed for ${ticker}, falling back to AV. Error: ${fmpError.message}`);
-        // 2. Try Alpha Vantage (Secondary)
+    const fetchFmpFinancials = async () => {
         try {
-            const results = await Promise.allSettled([
-                apiFetch(`${AV_BASE_URL}?function=INCOME_STATEMENT&symbol=${ticker}&apikey=${ALPHA_VANTAGE_API_KEY}`),
-                apiFetch(`${AV_BASE_URL}?function=BALANCE_SHEET&symbol=${ticker}&apikey=${ALPHA_VANTAGE_API_KEY}`),
-                apiFetch(`${AV_BASE_URL}?function=CASH_FLOW&symbol=${ticker}&apikey=${ALPHA_VANTAGE_API_KEY}`)
+            const [incomeResult, balanceResult, cashflowResult] = await Promise.allSettled([
+                apiFetch(`${FMP_BASE_URL}/income-statement?symbol=${ticker}&period=annual&limit=1&apikey=${FMP_API_KEY}`),
+                apiFetch(`${FMP_BASE_URL}/balance-sheet-statement?symbol=${ticker}&period=annual&limit=1&apikey=${FMP_API_KEY}`),
+                apiFetch(`${FMP_BASE_URL}/cash-flow-statement?symbol=${ticker}&period=annual&limit=1&apikey=${FMP_API_KEY}`)
             ]);
-            const incomeData = results[0].status === 'fulfilled' ? results[0].value : {};
-            const balanceData = results[1].status === 'fulfilled' ? results[1].value : {};
-            const cashflowData = results[2].status === 'fulfilled' ? results[2].value : {};
-            const incomeStatement = incomeData.annualReports?.[0] || {};
-            const balanceSheet = balanceData.annualReports?.[0] || {};
-            const cashFlowStatement = cashflowData.annualReports?.[0] || {};
-            if (!incomeStatement.totalRevenue) throw new Error("Invalid AV financials response");
-            return {
-                income: [
-                    { metric: 'Revenue', value: formatLargeNumber(incomeStatement.totalRevenue) },
-                    { metric: 'Net Income', value: formatLargeNumber(incomeStatement.netIncome) },
-                ],
-                balanceSheet: [
-                    { metric: 'Total Assets', value: formatLargeNumber(balanceSheet.totalAssets) },
-                    { metric: 'Total Liabilities', value: formatLargeNumber(balanceSheet.totalLiabilities) },
-                ],
-                cashFlow: [
-                    { metric: 'Operating Cash Flow', value: formatLargeNumber(cashFlowStatement.operatingCashflow) },
-                ],
-                asOf: incomeStatement.fiscalDateEnding || 'N/A'
+            
+            const income = (incomeResult.status === 'fulfilled' && incomeResult.value[0]) ? incomeResult.value[0] : {};
+            const balance = (balanceResult.status === 'fulfilled' && balanceResult.value[0]) ? balanceResult.value[0] : {};
+            const cashflow = (cashflowResult.status === 'fulfilled' && cashflowResult.value[0]) ? cashflowResult.value[0] : {};
+
+            const result = {
+                income: [] as {metric: string, value: string}[], 
+                balanceSheet: [] as {metric: string, value: string}[], 
+                cashFlow: [] as {metric: string, value: string}[], 
+                asOf: income.date || 'N/A'
             };
-        } catch (avError) {
-            console.warn(`AV financials failed for ${ticker}, falling back to static. Error: ${avError.message}`);
-            // 3. Fallback to Static (Tertiary)
-            return {
-                income: [{ metric: 'Revenue', value: 'N/A' }, { metric: 'Net Income', value: 'N/A' }],
-                balanceSheet: [{ metric: 'Total Assets', value: 'N/A' }, { metric: 'Total Liabilities', value: 'N/A' }],
-                cashFlow: [{ metric: 'Operating Cash Flow', value: 'N/A' }],
-                asOf: 'N/A'
-            };
+            if (income.revenue) result.income.push({ metric: 'Revenue', value: formatLargeNumber(income.revenue) });
+            if (income.netIncome) result.income.push({ metric: 'Net Income', value: formatLargeNumber(income.netIncome) });
+            if (balance.totalAssets) result.balanceSheet.push({ metric: 'Total Assets', value: formatLargeNumber(balance.totalAssets) });
+            if (balance.totalLiabilities) result.balanceSheet.push({ metric: 'Total Liabilities', value: formatLargeNumber(balance.totalLiabilities) });
+            if (cashflow.operatingCashFlow) result.cashFlow.push({ metric: 'Operating Cash Flow', value: formatLargeNumber(cashflow.operatingCashFlow) });
+
+            if (result.income.length > 0 || result.balanceSheet.length > 0 || result.cashFlow.length > 0) {
+                return result;
+            }
+        } catch (e) {
+            console.warn(`An error occurred during FMP financials fetch for ${ticker}: ${e.message}`);
         }
+        return null;
+    };
+
+    const fmpData = await fetchFmpFinancials();
+    if (fmpData) return fmpData;
+
+    console.warn(`FMP provided no financials for ${ticker}, falling back to AV.`);
+    try {
+        const [incomeData, balanceData, cashflowData] = await Promise.all([
+            apiFetch(`${AV_BASE_URL}?function=INCOME_STATEMENT&symbol=${ticker}&apikey=${ALPHA_VANTAGE_API_KEY}`),
+            apiFetch(`${AV_BASE_URL}?function=BALANCE_SHEET&symbol=${ticker}&apikey=${ALPHA_VANTAGE_API_KEY}`),
+            apiFetch(`${AV_BASE_URL}?function=CASH_FLOW&symbol=${ticker}&apikey=${ALPHA_VANTAGE_API_KEY}`)
+        ]);
+        const income = incomeData.annualReports?.[0];
+        const balance = balanceData.annualReports?.[0];
+        const cashflow = cashflowData.annualReports?.[0];
+
+        const result = {
+            income: [] as {metric: string, value: string}[], 
+            balanceSheet: [] as {metric: string, value: string}[], 
+            cashFlow: [] as {metric: string, value: string}[], 
+            asOf: income?.fiscalDateEnding || 'N/A'
+        };
+        if (income?.totalRevenue && income.totalRevenue !== "None") result.income.push({ metric: 'Revenue', value: formatLargeNumber(income.totalRevenue) });
+        if (income?.netIncome && income.netIncome !== "None") result.income.push({ metric: 'Net Income', value: formatLargeNumber(income.netIncome) });
+        if (balance?.totalAssets && balance.totalAssets !== "None") result.balanceSheet.push({ metric: 'Total Assets', value: formatLargeNumber(balance.totalAssets) });
+        if (balance?.totalLiabilities && balance.totalLiabilities !== "None") result.balanceSheet.push({ metric: 'Total Liabilities', value: formatLargeNumber(balance.totalLiabilities) });
+        if (cashflow?.operatingCashflow && cashflow.operatingCashflow !== "None") result.cashFlow.push({ metric: 'Operating Cash Flow', value: formatLargeNumber(cashflow.operatingCashflow) });
+        
+        if (result.income.length > 0 || result.balanceSheet.length > 0 || result.cashFlow.length > 0) {
+            return result;
+        }
+        throw new Error("AV returned no usable financials data.");
+    } catch (avError) {
+        console.warn(`AV financials also failed for ${ticker}, returning empty. Error: ${avError.message}`);
+        return {
+            income: [], balanceSheet: [], cashFlow: [], asOf: 'N/A'
+        };
     }
   }, TTL_60_DAYS),
 
   getCompanyProfile: async ({ ticker }) => withCache(`profile-${ticker}`, async () => {
-    const data = await apiFetch(`${FMP_BASE_URL}/profile/${ticker}?apikey=${FMP_API_KEY}`);
+    const data = await apiFetch(`${FMP_BASE_URL}/profile?symbol=${ticker}&apikey=${FMP_API_KEY}`);
     const profile = data[0] || {};
     return { description: profile.description, beta: profile.beta };
   }, TTL_60_DAYS),
 
   getDividendInfo: async ({ ticker }) => withCache(`dividend-${ticker}`, async () => {
     const results = await Promise.allSettled([
-      apiFetch(`${FMP_BASE_URL}/historical-price-full/stock_dividend/${ticker}?apikey=${FMP_API_KEY}`),
-      apiFetch(`${FMP_BASE_URL}/quote/${ticker}?apikey=${FMP_API_KEY}`)
+      apiFetch(`${FMP_BASE_URL}/dividends?symbol=${ticker}&apikey=${FMP_API_KEY}`),
+      apiFetch(`${FMP_BASE_URL}/quote?symbol=${ticker}&apikey=${FMP_API_KEY}`)
     ]);
 
     if (results[0].status === 'rejected') {
@@ -601,7 +607,7 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
     const dividendData = results[0].value;
     const quoteData = results[1].status === 'fulfilled' ? results[1].value : [];
     
-    const historical = dividendData.historical;
+    const historical = dividendData.historical || dividendData;
     if (!historical || historical.length === 0) return null;
     const lastDividend = historical[0];
     const quote = quoteData[0] || {};
@@ -649,7 +655,6 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
     return { data: result, source: 'live' };
   },
   generateAndOptimizePortfolio: async ({ template, optimizationModel, runner, constraints }) => {
-    // REFACTORED: Use the cached master asset list instead of making new API calls.
     const { data: { assets: availableAssets } } = await handlers.getAvailableAssets({});
     let selectedAssets: Asset[] = [];
 
@@ -657,7 +662,7 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
         case 'Aggressive': {
             const techStocks = availableAssets
                 .filter(a => a.sector === 'Technology' && a.asset_class === 'EQUITY')
-                .sort((a, b) => (b.price ?? 0) - (a.price ?? 0)) // Simple sort as a proxy for size
+                .sort((a, b) => (b.price ?? 0) - (a.price ?? 0))
                 .slice(0, 15);
             const majorCryptos = availableAssets.filter(a => ['BTC', 'ETH', 'SOL'].includes(a.ticker));
             selectedAssets = [...techStocks, ...majorCryptos];
@@ -669,16 +674,15 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
             break;
         }
         case 'Shariah': {
-            selectedAssets = availableAssets
-                .filter(a => a.is_shariah_compliant === true && a.asset_class === 'EQUITY')
-                .sort((a, b) => (b.price ?? 0) - (a.price ?? 0)) // Simple sort as a proxy for size
-                .slice(0, 20);
+            // Since the free /stock-list API doesn't provide a Shariah flag,
+            // we use a hardcoded fallback list of well-known compliant stocks.
+            const SHARIAH_COMPLIANT_TICKERS_FALLBACK = ['AAPL', 'MSFT', 'ADBE', 'ORCL', 'LLY', 'JNJ', 'MRK', 'PFE', 'PG', 'TSLA', 'V', 'MA'];
+            selectedAssets = availableAssets.filter(a => SHARIAH_COMPLIANT_TICKERS_FALLBACK.includes(a.ticker));
             break;
         }
     }
     
     if (selectedAssets.length < 2) {
-        // Fallback to a default balanced set if filtering returns too few assets
         selectedAssets = staticAssetsList.filter(a => ['SPY', 'QQQ', 'AGG', 'GLD'].includes(a.ticker));
     }
     
