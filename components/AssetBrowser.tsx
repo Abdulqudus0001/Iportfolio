@@ -65,7 +65,6 @@ const AssetBrowser: React.FC<AssetBrowserProps> = ({ openAiChat }) => {
   const [showWatchlistOnly, setShowWatchlistOnly] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sortConfig, setSortConfig] = useState<{ key: SortKey, direction: 'asc' | 'desc' }>({ key: 'ticker', direction: 'asc' });
-  const [isAnalyzingShariah, setIsAnalyzingShariah] = useState(false);
 
 
   const isProOrHigher = tier === UserTier.Professional || tier === UserTier.Advanced;
@@ -171,40 +170,6 @@ const AssetBrowser: React.FC<AssetBrowserProps> = ({ openAiChat }) => {
     const prompt = `I'm looking for an asset similar to "${searchTerm}", but I can't find it. Can you suggest 3-5 alternative stocks or ETFs from available markets (US, UK, Saudi Arabia, Qatar, Crypto) that have a similar profile (e.g., same industry, similar market cap, or investment theme)? For each suggestion, briefly explain why it's a good alternative and provide its ticker symbol if you know it.`;
     openAiChat(prompt);
   };
-
-  const handleShariahExplain = async () => {
-    if (!selectedAsset || isAnalyzingShariah) return;
-    
-    setIsAnalyzingShariah(true);
-    try {
-        const profileResult = await marketDataService.getCompanyProfile(selectedAsset.ticker);
-        const profile = profileResult.data;
-        
-        const complianceStatus = selectedAsset.is_shariah_compliant ? 'is marked as Shariah Compliant' : 'is NOT marked as Shariah Compliant';
-        
-        const prompt = `
-        Act as a Shariah compliance analyst. The asset ${selectedAsset.name} (${selectedAsset.ticker}) ${complianceStatus}. 
-        
-        Based on the following company profile, please provide a detailed explanation for this classification. Analyze its business activities and financial structure against common Shariah screening criteria.
-        
-        Specifically, look for and comment on:
-        1.  **Business Activities**: Any involvement in prohibited sectors like alcohol, pork products, conventional interest-based banking/insurance, gambling, adult entertainment, or tobacco.
-        2.  **Financial Ratios (conceptual)**: Comment on the likelihood of the company adhering to thresholds for debt, illiquid assets, and interest-bearing income, even if you don't have the exact numbers.
-        
-        Company Profile: "${profile.description}"
-        
-        Conclude with a clear, concise summary and a disclaimer that this is an AI-generated analysis for informational purposes and not a formal religious ruling.
-        `;
-        openAiChat(prompt);
-
-    } catch (error) {
-        console.error("Failed to get company profile for Shariah analysis", error);
-        openAiChat(`I'm sorry, I couldn't retrieve the company profile for ${selectedAsset.name} to perform a detailed Shariah compliance analysis. Please try again later.`);
-    } finally {
-        setIsAnalyzingShariah(false);
-    }
-  };
-
 
   const SummaryItem: React.FC<{ label: string; value: string | number }> = ({ label, value }) => (
     <div className="flex justify-between text-sm py-1 border-b border-gray-100 dark:border-gray-700">
