@@ -33,14 +33,11 @@ const OptionsStrategyModeler: React.FC<OptionsStrategyModelerProps> = ({ portfol
       marketDataService.getOptionChain(selectedAsset, expirationDate),
       marketDataService.getAssetPriceSummary(selectedAsset)
     ]).then(([chainResponse, summary]) => {
-      // FIX: The api-proxy returns the data directly, not wrapped in a `data` object.
-      const chainData = chainResponse || [];
+      const chainData = chainResponse.data || [];
       setOptionChain(chainData.filter(c => c.type === 'call'));
-      // FIX: The api-proxy returns the data directly, not wrapped in a `data` object.
-      setCurrentPrice(summary.close);
+      setCurrentPrice(summary.data.close);
       // Select a strike price slightly out of the money
-      // FIX: The api-proxy returns the data directly, not wrapped in a `data` object.
-      const targetStrike = summary.close * 1.05;
+      const targetStrike = summary.data.close * 1.05;
       const closestOption = chainData.reduce((prev, curr) => 
           Math.abs(curr.strikePrice - targetStrike) < Math.abs(prev.strikePrice - targetStrike) ? curr : prev, { strikePrice: Infinity } as OptionContract
       );

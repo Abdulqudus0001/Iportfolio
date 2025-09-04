@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import Button from './ui/Button';
 import { View } from '../types';
@@ -80,22 +79,23 @@ const AIChatBot: React.FC<AIChatBotProps> = ({ isOpen, onClose, initialPrompt, s
         setIsLoading(true);
         setInput('');
 
-        const userMessage: Message = { role: 'user', content: messageContent };
-        const currentMessages: Message[] = isHiddenUserMessage
-            ? [...messages]
-            : [...messages, userMessage];
+        const currentMessages: Message[] = isHiddenUserMessage 
+            ? messages 
+            : [...messages, { role: 'user', content: messageContent } as Message];
 
         if(!isHiddenUserMessage) {
             setMessages(currentMessages);
         }
         
-        // Add a placeholder for the model's response
         setMessages(prev => [...prev, { role: 'model', content: '' } as Message]);
 
         try {
-            const historyForApi = currentMessages.map(({ role, content }) => ({ role, content }));
+            const history = currentMessages.map(m => ({
+                role: m.role,
+                parts: [{ text: m.content }]
+            }));
 
-            const stream = await aiService.startChatStream(messageContent, historyForApi);
+            const stream = aiService.startChatStream(messageContent, history);
             let fullResponse = '';
 
             for await (const chunk of stream) {
@@ -107,7 +107,7 @@ const AIChatBot: React.FC<AIChatBotProps> = ({ isOpen, onClose, initialPrompt, s
                 setMessages(prev => {
                     const newMessages = [...prev];
                     const lastMessage = newMessages[newMessages.length - 1];
-                    if(lastMessage && lastMessage.role === 'model') {
+                    if(lastMessage) {
                        lastMessage.content = cleanText;
                        lastMessage.actions = actions;
                     }
@@ -124,13 +124,10 @@ const AIChatBot: React.FC<AIChatBotProps> = ({ isOpen, onClose, initialPrompt, s
             const errorMessage: Message = { role: 'model', content: "Sorry, I encountered an error. Please try again." };
             setMessages(prev => {
                 const newMessages = [...prev];
-                // Replace the empty placeholder with the error message
                 if (newMessages[newMessages.length - 1]?.content === '') {
-                    newMessages[newMessages.length - 1] = errorMessage;
-                } else {
-                    newMessages.push(errorMessage);
+                    newMessages.pop();
                 }
-                return newMessages;
+                return [...newMessages, errorMessage];
             });
         } finally {
              if (isMounted.current) {

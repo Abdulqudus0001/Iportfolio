@@ -1,6 +1,5 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
-import { Asset, FinancialRatio, Financials, PriceSummary, UserTier } from '../types';
+import { Asset, FinancialRatio, Financials, PriceSummary, UserTier, DataSource } from '../types';
 import { marketDataService } from '../services/marketDataService';
 import Card from './ui/Card';
 import Loader from './ui/Loader';
@@ -95,7 +94,10 @@ const AssetBrowser: React.FC<AssetBrowserProps> = ({ openAiChat }) => {
         marketDataService.getFinancialRatios(selectedAsset.ticker),
         marketDataService.getFinancialsSnapshot(selectedAsset.ticker),
         marketDataService.getAssetPriceSummary(selectedAsset.ticker)
-      ]).then(([ratios, financials, summary]) => {
+      ]).then(([ratiosResult, financialsResult, summaryResult]) => {
+        const { data: ratios } = ratiosResult;
+        const { data: financials } = financialsResult;
+        const { data: summary } = summaryResult;
 
         const hasMeaningfulData = summary.close > 0 || ratios.some(r => r.value !== 'N/A');
 
@@ -175,7 +177,8 @@ const AssetBrowser: React.FC<AssetBrowserProps> = ({ openAiChat }) => {
     
     setIsAnalyzingShariah(true);
     try {
-        const profile = await marketDataService.getCompanyProfile(selectedAsset.ticker);
+        const profileResult = await marketDataService.getCompanyProfile(selectedAsset.ticker);
+        const profile = profileResult.data;
         
         const complianceStatus = selectedAsset.is_shariah_compliant ? 'is marked as Shariah Compliant' : 'is NOT marked as Shariah Compliant';
         

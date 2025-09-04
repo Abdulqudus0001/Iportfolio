@@ -14,7 +14,7 @@ iPortfolio is packed with features that cater to investors of all experience lev
 - **🔍 Asset Browser**: Search, filter, and analyze thousands of global stocks and cryptocurrencies. View detailed price summaries, key financial ratios, historical charts, and manage a personal watchlist.
 - **🛠️ Portfolio Construction**:
     - **Manual Mode**: Add assets and define custom weights for full control.
-    - **Strategy Templates**: Use pre-built templates like `Balanced`, `Aggressive`, or `Shariah Compliant` to automatically generate a diversified portfolio.
+    - **Strategy Templates**: Use pre-built templates like `Balanced`, `Aggressive`, or `Shariah` to automatically generate a diversified portfolio.
     - **CSV Import**: Quickly import your holdings from a CSV file.
 - **🚀 Advanced Optimization**:
     - **Modern Portfolio Theory (MPT)**: Implements MPT to find the optimal portfolio on the efficient frontier.
@@ -25,6 +25,8 @@ iPortfolio is packed with features that cater to investors of all experience lev
     - **Composition Analysis**: Visualize your portfolio's breakdown by asset, sector, and country.
     - **Correlation Matrix**: Understand how your assets move in relation to each other to ensure proper diversification.
     - **Risk & Return Contribution**: See which assets are driving returns and which are contributing the most risk.
+    - **Factor Analysis**: Decomposes portfolio returns based on Fama-French factors (Market, Size, Value).
+    - **Historical Backtesting**: Simulate your portfolio's performance against benchmarks like the S&P 500 (SPY).
     - **Value at Risk (VaR)**: (Advanced Tier) Calculates potential 1-day loss at 95% confidence using historical simulation.
     - **Market Scenario Analysis**: (Advanced Tier) Stress-tests the portfolio against major economic events.
 - **🧠 AI Co-Pilot (Powered by Google Gemini)**:
@@ -36,6 +38,7 @@ iPortfolio is packed with features that cater to investors of all experience lev
     - **Professional**: Unlocks advanced analytics, backtesting, and all portfolio templates.
     - **Advanced**: Accesses institutional-grade tools like VaR, Scenario Analysis, and advanced optimization models.
 - **🔐 User Authentication & Cloud Sync**: Create a free account to save and sync multiple portfolios across devices using Supabase.
+- **🌐 Community Portfolios**: Explore and clone pre-built portfolio strategies from the community to kickstart your investment journey.
 - **🎨 Theming**: Switch between a clean light mode and a sleek dark mode.
 
 ---
@@ -50,20 +53,21 @@ iPortfolio is built with a modern, robust, and scalable tech stack.
     - **Charting**: Recharts
 - **Backend & Database (BaaS)**:
     - **Provider**: Supabase
-    - **Features**: User Authentication, PostgreSQL Database (for saving portfolios), Edge Functions.
+    - **Features**: User Authentication, PostgreSQL Database (for saving portfolios), Edge Functions (for server-side optimization logic).
 - **Artificial Intelligence**:
     - **Provider**: Google AI
     - **Model**: Gemini 2.5 Flash via the `@google/genai` SDK.
 - **Financial Data Sources**:
     - All external API calls are securely handled by the `api-proxy` Supabase Edge Function.
+- **State Management**:
+    - React Context API for managing global state like user authentication, portfolio data, and theme.
 
 ### Architectural Highlights
 
 - **Secure API Gateway**: The `api-proxy` Edge Function acts as a secure backend, managing all API keys and handling calls to financial data providers and the Google Gemini API. This keeps all secrets off the client-side.
-- **Server-Side Caching**: Leverages a PostgreSQL table (`api_cache`) within Supabase to provide a centralized, server-side cache for all external API calls. This drastically improves performance, reduces costs, and enhances application resiliency.
-- **Scheduled Cron Job**: A `template-screener-cron` Edge Function runs on a daily schedule to perform intensive screening for template portfolios, caching the results for fast access.
-- **Component-Based UI**: The interface is built with modular, reusable React components.
-- **Feature Gating via Context**: User Tiers (`UserTierContext.ts`) are managed globally, allowing components to conditionally render features based on the user's selected experience level.
+- **Server-Side Caching**: Leverages a PostgreSQL table (`api_cache`) within Supabase to provide a centralized, server-side cache for all external API calls. This drastically improves performance for repeated requests, reduces costs, and enhances application resiliency.
+- **Component-Based UI**: The interface is built with modular, reusable React components located in the `components/` directory.
+- **Feature Gating via Context**: User Tiers (`UserTierContext.ts`) are managed globally, allowing components to conditionally render features based on the user's subscription level.
 
 ---
 
@@ -97,16 +101,16 @@ Follow these instructions to deploy the application and its backend functions us
     ```
     You will be prompted to enter your database password.
 
-4.  **Set Up Secrets in Supabase:**
-    Before deploying, you must add your secret API keys to your Supabase project using the CLI. **Do not put keys in your code.**
-    
-    ```bash
-    supabase secrets set FMP_API_KEY="your_financial_modeling_prep_key"
-    supabase secrets set ALPHA_VANTAGE_API_KEY="your_alpha_vantage_key"
-    supabase secrets set NEWS_API_KEY="your_newsapi_key"
-    supabase secrets set API_KEY="your_google_gemini_key"
-    ```
-
+4.  **Set Up Secrets in Supabase Dashboard:**
+    Before deploying, you must add your secret API keys to your Supabase project.
+    - Go to your project's dashboard on `supabase.com`.
+    - Navigate to **Project Settings > Edge Functions**.
+    - Add a new secret for each of the following:
+        - `FMP_API_KEY`: Your key from Financial Modeling Prep.
+        - `ALPHA_VANTAGE_API_KEY`: Your key from Alpha Vantage (used as a fallback).
+        - `NEWS_API_KEY`: Your key from NewsAPI.
+        - `GEMINI_API_KEY`: Your key from Google AI Studio.
+        
 5.  **Create the Cache Table:**
     This is a critical step. Log in to your Supabase project dashboard, navigate to the **SQL Editor**, and run the following command to create the necessary table for caching API responses:
     ```sql
@@ -117,19 +121,13 @@ Follow these instructions to deploy the application and its backend functions us
     );
     ```
 
-6.  **Deploy the Edge Functions:**
-    This command bundles and deploys the `api-proxy` and `template-screener-cron` functions. We use a simplified `config.toml` for this initial deployment.
+6.  **Deploy the Edge Function:**
+    This command bundles and deploys the `api-proxy` function, which handles all backend logic.
     ```bash
-    supabase functions deploy
+    supabase functions deploy api-proxy --no-verify-jwt
     ```
 
-7.  **Set the Cron Job Schedule:**
-    After the functions are deployed, update the cron job to run on its daily schedule using this command:
-    ```bash
-    supabase functions update template-screener-cron --schedule "0 8 * * *"
-    ```
-
-8.  **Done!**
+7.  **Done!**
     Your application's backend is now live. You can open the `index.html` file or serve the static files to use the app.
 
 ---
@@ -141,18 +139,16 @@ Follow these instructions to deploy the application and its backend functions us
 ├── components/         # Reusable React components
 │   ├── analytics/      # Components for the Analytics view
 │   ├── dashboard/      # Components for the Dashboard view
+│   ├── portfolio/      # Components for the Portfolio view
 │   └── ui/             # Generic UI elements (Card, Button, Modal)
 ├── context/            # React Context providers for global state
 ├── hooks/              # Custom React hooks
 ├── services/           # API clients and data-fetching logic
 ├── supabase/           # Supabase edge functions
 │   └── functions/
-│       ├── _shared/
-│       ├── api-proxy/  # The main backend Edge Function
-│       └── template-screener-cron/ # The scheduled cron job
+│       └── api-proxy/  # The main backend Edge Function
 ├── App.tsx             # Main application component and routing
 ├── types.ts            # Central TypeScript type definitions
-├── config.toml         # Supabase local configuration
 ├── index.html          # Main HTML file
 └── index.tsx           # Application entry point
 ```

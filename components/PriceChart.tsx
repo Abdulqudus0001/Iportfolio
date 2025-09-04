@@ -1,7 +1,6 @@
-
 import React, { useState, useEffect } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { marketDataService } from '../services/marketDataService';
+import { marketDataService, ServiceResponse } from '../services/marketDataService';
 import { PriceDataPoint } from '../types';
 import Loader from './ui/Loader';
 import { useTheme } from '../context/ThemeContext';
@@ -27,11 +26,11 @@ const PriceChart: React.FC<PriceChartProps> = ({ ticker }) => {
     setError(null);
     setData(null);
     marketDataService.getAssetPriceHistory(ticker, '1y')
-      .then((priceData) => {
-        if (priceData.length === 0) {
+      .then((response: ServiceResponse<PriceDataPoint[]>) => {
+        if (response.data.length === 0) {
             throw new Error("No historical data available for this asset.");
         }
-        setData(priceData);
+        setData(response.data);
       })
       .catch((err) => {
         console.error(err);
