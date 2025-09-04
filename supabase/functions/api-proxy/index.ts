@@ -169,76 +169,76 @@ const scale = (matrix: number[][], scalar: number): number[][] => matrix.map(row
 // This ensures the application remains robust and useful even during API outages.
 const staticAssetsList: Asset[] = [
     // US Tech
-    { ticker: 'AAPL', name: 'Apple Inc.', country: 'US', sector: 'Technology', asset_class: 'EQUITY', is_shariah_compliant: true },
-    { ticker: 'MSFT', name: 'Microsoft Corp.', country: 'US', sector: 'Technology', asset_class: 'EQUITY', is_shariah_compliant: true },
-    { ticker: 'GOOGL', name: 'Alphabet Inc.', country: 'US', sector: 'Technology', asset_class: 'EQUITY', is_shariah_compliant: false },
-    { ticker: 'AMZN', name: 'Amazon.com Inc.', country: 'US', sector: 'Consumer Cyclical', asset_class: 'EQUITY', is_shariah_compliant: false },
-    { ticker: 'NVDA', name: 'NVIDIA Corp.', country: 'US', sector: 'Technology', asset_class: 'EQUITY', is_shariah_compliant: false },
-    { ticker: 'META', name: 'Meta Platforms, Inc.', country: 'US', sector: 'Technology', asset_class: 'EQUITY', is_shariah_compliant: false },
-    { ticker: 'TSLA', name: 'Tesla, Inc.', country: 'US', sector: 'Consumer Cyclical', asset_class: 'EQUITY', is_shariah_compliant: true },
-    { ticker: 'AVGO', name: 'Broadcom Inc.', country: 'US', sector: 'Technology', asset_class: 'EQUITY', is_shariah_compliant: true },
-    { ticker: 'ORCL', name: 'Oracle Corporation', country: 'US', sector: 'Technology', asset_class: 'EQUITY', is_shariah_compliant: true },
-    { ticker: 'ADBE', name: 'Adobe Inc.', country: 'US', sector: 'Technology', asset_class: 'EQUITY', is_shariah_compliant: true },
+    { ticker: 'AAPL', name: 'Apple Inc.', country: 'US', sector: 'Technology', asset_class: 'EQUITY', is_shariah_compliant: true, price: 171.48 },
+    { ticker: 'MSFT', name: 'Microsoft Corp.', country: 'US', sector: 'Technology', asset_class: 'EQUITY', is_shariah_compliant: true, price: 340.73 },
+    { ticker: 'GOOGL', name: 'Alphabet Inc.', country: 'US', sector: 'Technology', asset_class: 'EQUITY', is_shariah_compliant: false, price: 138.80 },
+    { ticker: 'AMZN', name: 'Amazon.com Inc.', country: 'US', sector: 'Consumer Cyclical', asset_class: 'EQUITY', is_shariah_compliant: false, price: 137.85 },
+    { ticker: 'NVDA', name: 'NVIDIA Corp.', country: 'US', sector: 'Technology', asset_class: 'EQUITY', is_shariah_compliant: false, price: 471.65 },
+    { ticker: 'META', name: 'Meta Platforms, Inc.', country: 'US', sector: 'Technology', asset_class: 'EQUITY', is_shariah_compliant: false, price: 334.89 },
+    { ticker: 'TSLA', name: 'Tesla, Inc.', country: 'US', sector: 'Consumer Cyclical', asset_class: 'EQUITY', is_shariah_compliant: true, price: 256.60 },
+    { ticker: 'AVGO', name: 'Broadcom Inc.', country: 'US', sector: 'Technology', asset_class: 'EQUITY', is_shariah_compliant: true, price: 914.39 },
+    { ticker: 'ORCL', name: 'Oracle Corporation', country: 'US', sector: 'Technology', asset_class: 'EQUITY', is_shariah_compliant: true, price: 115.00 },
+    { ticker: 'ADBE', name: 'Adobe Inc.', country: 'US', sector: 'Technology', asset_class: 'EQUITY', is_shariah_compliant: true, price: 560.11 },
 
     // US Financials
-    { ticker: 'JPM', name: 'JPMorgan Chase & Co.', country: 'US', sector: 'Financial Services', asset_class: 'EQUITY', is_shariah_compliant: false },
-    { ticker: 'V', name: 'Visa Inc.', country: 'US', sector: 'Financial Services', asset_class: 'EQUITY', is_shariah_compliant: true },
-    { ticker: 'MA', name: 'Mastercard Incorporated', country: 'US', sector: 'Financial Services', asset_class: 'EQUITY', is_shariah_compliant: true },
-    { ticker: 'BAC', name: 'Bank of America Corp', country: 'US', sector: 'Financial Services', asset_class: 'EQUITY', is_shariah_compliant: false },
-    { ticker: 'WFC', name: 'Wells Fargo & Company', country: 'US', sector: 'Financial Services', asset_class: 'EQUITY', is_shariah_compliant: false },
+    { ticker: 'JPM', name: 'JPMorgan Chase & Co.', country: 'US', sector: 'Financial Services', asset_class: 'EQUITY', is_shariah_compliant: false, price: 153.21 },
+    { ticker: 'V', name: 'Visa Inc.', country: 'US', sector: 'Financial Services', asset_class: 'EQUITY', is_shariah_compliant: true, price: 249.00 },
+    { ticker: 'MA', name: 'Mastercard Incorporated', country: 'US', sector: 'Financial Services', asset_class: 'EQUITY', is_shariah_compliant: true, price: 401.94 },
+    { ticker: 'BAC', name: 'Bank of America Corp', country: 'US', sector: 'Financial Services', asset_class: 'EQUITY', is_shariah_compliant: false, price: 29.80 },
+    { ticker: 'WFC', name: 'Wells Fargo & Company', country: 'US', sector: 'Financial Services', asset_class: 'EQUITY', is_shariah_compliant: false, price: 42.17 },
 
     // US Healthcare
-    { ticker: 'LLY', name: 'Eli Lilly and Company', country: 'US', sector: 'Healthcare', asset_class: 'EQUITY', is_shariah_compliant: true },
-    { ticker: 'JNJ', name: 'Johnson & Johnson', country: 'US', sector: 'Healthcare', asset_class: 'EQUITY', is_shariah_compliant: true },
-    { ticker: 'UNH', name: 'UnitedHealth Group Inc.', country: 'US', sector: 'Healthcare', asset_class: 'EQUITY', is_shariah_compliant: false },
-    { ticker: 'MRK', name: 'Merck & Co., Inc.', country: 'US', sector: 'Healthcare', asset_class: 'EQUITY', is_shariah_compliant: true },
-    { ticker: 'PFE', name: 'Pfizer Inc.', country: 'US', sector: 'Healthcare', asset_class: 'EQUITY', is_shariah_compliant: true },
+    { ticker: 'LLY', name: 'Eli Lilly and Company', country: 'US', sector: 'Healthcare', asset_class: 'EQUITY', is_shariah_compliant: true, price: 585.12 },
+    { ticker: 'JNJ', name: 'Johnson & Johnson', country: 'US', sector: 'Healthcare', asset_class: 'EQUITY', is_shariah_compliant: true, price: 155.85 },
+    { ticker: 'UNH', name: 'UnitedHealth Group Inc.', country: 'US', sector: 'Healthcare', asset_class: 'EQUITY', is_shariah_compliant: false, price: 541.00 },
+    { ticker: 'MRK', name: 'Merck & Co., Inc.', country: 'US', sector: 'Healthcare', asset_class: 'EQUITY', is_shariah_compliant: true, price: 104.97 },
+    { ticker: 'PFE', name: 'Pfizer Inc.', country: 'US', sector: 'Healthcare', asset_class: 'EQUITY', is_shariah_compliant: true, price: 30.70 },
 
     // US Consumer
-    { ticker: 'WMT', name: 'Walmart Inc.', country: 'US', sector: 'Consumer Defensive', asset_class: 'EQUITY', is_shariah_compliant: true },
-    { ticker: 'PG', name: 'Procter & Gamble Co.', country: 'US', sector: 'Consumer Defensive', asset_class: 'EQUITY', is_shariah_compliant: true },
-    { ticker: 'HD', name: 'The Home Depot, Inc.', country: 'US', sector: 'Consumer Cyclical', asset_class: 'EQUITY', is_shariah_compliant: false },
-    { ticker: 'MCD', name: "McDonald's Corporation", country: 'US', sector: 'Consumer Cyclical', asset_class: 'EQUITY', is_shariah_compliant: false },
-    { ticker: 'KO', name: 'The Coca-Cola Company', country: 'US', sector: 'Consumer Defensive', asset_class: 'EQUITY', is_shariah_compliant: false },
+    { ticker: 'WMT', name: 'Walmart Inc.', country: 'US', sector: 'Consumer Defensive', asset_class: 'EQUITY', is_shariah_compliant: true, price: 161.41 },
+    { ticker: 'PG', name: 'Procter & Gamble Co.', country: 'US', sector: 'Consumer Defensive', asset_class: 'EQUITY', is_shariah_compliant: true, price: 153.88 },
+    { ticker: 'HD', name: 'The Home Depot, Inc.', country: 'US', sector: 'Consumer Cyclical', asset_class: 'EQUITY', is_shariah_compliant: false, price: 308.85 },
+    { ticker: 'MCD', name: "McDonald's Corporation", country: 'US', sector: 'Consumer Cyclical', asset_class: 'EQUITY', is_shariah_compliant: false, price: 285.41 },
+    { ticker: 'KO', name: 'The Coca-Cola Company', country: 'US', sector: 'Consumer Defensive', asset_class: 'EQUITY', is_shariah_compliant: false, price: 58.75 },
 
     // US Energy & Industrials
-    { ticker: 'XOM', name: 'Exxon Mobil Corp.', country: 'US', sector: 'Energy', asset_class: 'EQUITY', is_shariah_compliant: false },
-    { ticker: 'CVX', name: 'Chevron Corporation', country: 'US', sector: 'Energy', asset_class: 'EQUITY', is_shariah_compliant: false },
-    { ticker: 'CAT', name: 'Caterpillar Inc.', country: 'US', sector: 'Industrials', asset_class: 'EQUITY', is_shariah_compliant: false },
-    { ticker: 'BA', name: 'The Boeing Company', country: 'US', sector: 'Industrials', asset_class: 'EQUITY', is_shariah_compliant: false },
+    { ticker: 'XOM', name: 'Exxon Mobil Corp.', country: 'US', sector: 'Energy', asset_class: 'EQUITY', is_shariah_compliant: false, price: 104.59 },
+    { ticker: 'CVX', name: 'Chevron Corporation', country: 'US', sector: 'Energy', asset_class: 'EQUITY', is_shariah_compliant: false, price: 147.22 },
+    { ticker: 'CAT', name: 'Caterpillar Inc.', country: 'US', sector: 'Industrials', asset_class: 'EQUITY', is_shariah_compliant: false, price: 245.97 },
+    { ticker: 'BA', name: 'The Boeing Company', country: 'US', sector: 'Industrials', asset_class: 'EQUITY', is_shariah_compliant: false, price: 201.12 },
 
     // ETFs
-    { ticker: 'SPY', name: 'SPDR S&P 500 ETF', country: 'US', sector: 'Mixed', asset_class: 'BENCHMARK' },
-    { ticker: 'QQQ', name: 'Invesco QQQ Trust', country: 'US', sector: 'Mixed', asset_class: 'BENCHMARK' },
-    { ticker: 'AGG', name: 'iShares Core U.S. Bond ETF', country: 'US', sector: 'Mixed', asset_class: 'BENCHMARK' },
-    { ticker: 'GLD', name: 'SPDR Gold Shares', country: 'US', sector: 'Commodity', asset_class: 'BENCHMARK' },
-    { ticker: 'IEFA', name: 'iShares Core MSCI EAFE ETF', country: 'US', sector: 'Mixed', asset_class: 'BENCHMARK' },
-    { ticker: 'VTI', name: 'Vanguard Total Stock Market ETF', country: 'US', sector: 'Mixed', asset_class: 'BENCHMARK' },
+    { ticker: 'SPY', name: 'SPDR S&P 500 ETF', country: 'US', sector: 'Mixed', asset_class: 'BENCHMARK', price: 454.44 },
+    { ticker: 'QQQ', name: 'Invesco QQQ Trust', country: 'US', sector: 'Mixed', asset_class: 'BENCHMARK', price: 388.17 },
+    { ticker: 'AGG', name: 'iShares Core U.S. Bond ETF', country: 'US', sector: 'Mixed', asset_class: 'BENCHMARK', price: 97.43 },
+    { ticker: 'GLD', name: 'SPDR Gold Shares', country: 'US', sector: 'Commodity', asset_class: 'BENCHMARK', price: 186.27 },
+    { ticker: 'IEFA', name: 'iShares Core MSCI EAFE ETF', country: 'US', sector: 'Mixed', asset_class: 'BENCHMARK', price: 68.96 },
+    { ticker: 'VTI', name: 'Vanguard Total Stock Market ETF', country: 'US', sector: 'Mixed', asset_class: 'BENCHMARK', price: 227.14 },
 
     // International Stocks
-    { ticker: '2222.SR', name: 'Saudi Aramco', country: 'SAUDI ARABIA', sector: 'Energy', asset_class: 'EQUITY', is_shariah_compliant: true },
-    { ticker: 'QNBK.QA', name: 'Qatar National Bank', country: 'QATAR', sector: 'Financial Services', asset_class: 'EQUITY', is_shariah_compliant: true },
-    { ticker: 'DANGCEM.LG', name: 'Dangote Cement', country: 'NIGERIA', sector: 'Basic Materials', asset_class: 'EQUITY', is_shariah_compliant: true },
-    { ticker: 'HSBC.L', name: 'HSBC Holdings plc', country: 'UK', sector: 'Financial Services', asset_class: 'EQUITY', is_shariah_compliant: false },
-    { ticker: 'ULVR.L', name: 'Unilever PLC', country: 'UK', sector: 'Consumer Defensive', asset_class: 'EQUITY', is_shariah_compliant: true },
-    { ticker: 'BHP', name: 'BHP Group Limited', country: 'UK', sector: 'Basic Materials', asset_class: 'EQUITY', is_shariah_compliant: false },
-    { ticker: 'TM', name: 'Toyota Motor Corp', country: 'JAPAN', sector: 'Consumer Cyclical', asset_class: 'EQUITY', is_shariah_compliant: false },
-    { ticker: 'TSM', name: 'Taiwan Semiconductor', country: 'TAIWAN', sector: 'Technology', asset_class: 'EQUITY', is_shariah_compliant: true },
-    { ticker: 'ASML', name: 'ASML Holding N.V.', country: 'NETHERLANDS', sector: 'Technology', asset_class: 'EQUITY', is_shariah_compliant: true },
+    { ticker: '2222.SR', name: 'Saudi Aramco', country: 'SAUDI ARABIA', sector: 'Energy', asset_class: 'EQUITY', is_shariah_compliant: true, price: 32.50 },
+    { ticker: 'QNBK.QA', name: 'Qatar National Bank', country: 'QATAR', sector: 'Financial Services', asset_class: 'EQUITY', is_shariah_compliant: true, price: 16.50 },
+    { ticker: 'DANGCEM.LG', name: 'Dangote Cement', country: 'NIGERIA', sector: 'Basic Materials', asset_class: 'EQUITY', is_shariah_compliant: true, price: 317.00 },
+    { ticker: 'HSBC.L', name: 'HSBC Holdings plc', country: 'UK', sector: 'Financial Services', asset_class: 'EQUITY', is_shariah_compliant: false, price: 620.00 },
+    { ticker: 'ULVR.L', name: 'Unilever PLC', country: 'UK', sector: 'Consumer Defensive', asset_class: 'EQUITY', is_shariah_compliant: true, price: 3980.50 },
+    { ticker: 'BHP', name: 'BHP Group Limited', country: 'UK', sector: 'Basic Materials', asset_class: 'EQUITY', is_shariah_compliant: false, price: 54.30 },
+    { ticker: 'TM', name: 'Toyota Motor Corp', country: 'JAPAN', sector: 'Consumer Cyclical', asset_class: 'EQUITY', is_shariah_compliant: false, price: 185.73 },
+    { ticker: 'TSM', name: 'Taiwan Semiconductor', country: 'TAIWAN', sector: 'Technology', asset_class: 'EQUITY', is_shariah_compliant: true, price: 98.45 },
+    { ticker: 'ASML', name: 'ASML Holding N.V.', country: 'NETHERLANDS', sector: 'Technology', asset_class: 'EQUITY', is_shariah_compliant: true, price: 680.14 },
 
     // Cryptocurrencies
-    { ticker: 'BTC', name: 'Bitcoin', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO' },
-    { ticker: 'ETH', name: 'Ethereum', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO' },
-    { ticker: 'SOL', name: 'Solana', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO' },
-    { ticker: 'XRP', name: 'XRP', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO' },
-    { ticker: 'ADA', name: 'Cardano', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO' },
-    { ticker: 'AVAX', name: 'Avalanche', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO' },
-    { ticker: 'DOGE', name: 'Dogecoin', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO' },
-    { ticker: 'DOT', name: 'Polkadot', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO' },
-    { ticker: 'LINK', name: 'Chainlink', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO' },
-    { ticker: 'MATIC', name: 'Polygon', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO' },
-    { ticker: 'LTC', name: 'Litecoin', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO' },
-    { ticker: 'BCH', name: 'Bitcoin Cash', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO' },
+    { ticker: 'BTC', name: 'Bitcoin', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: 37401.50 },
+    { ticker: 'ETH', name: 'Ethereum', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: 2026.88 },
+    { ticker: 'SOL', name: 'Solana', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: 58.14 },
+    { ticker: 'XRP', name: 'XRP', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: 0.61 },
+    { ticker: 'ADA', name: 'Cardano', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: 0.38 },
+    { ticker: 'AVAX', name: 'Avalanche', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: 22.05 },
+    { ticker: 'DOGE', name: 'Dogecoin', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: 0.078 },
+    { ticker: 'DOT', name: 'Polkadot', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: 5.34 },
+    { ticker: 'LINK', name: 'Chainlink', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: 14.88 },
+    { ticker: 'MATIC', name: 'Polygon', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: 0.86 },
+    { ticker: 'LTC', name: 'Litecoin', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: 70.81 },
+    { ticker: 'BCH', name: 'Bitcoin Cash', country: 'CRYPTO', sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: 236.80 },
 ];
 
 const staticData = {
@@ -399,60 +399,68 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
     const assetInfo = allAssetsResponse.data.assets.find((a: Asset) => a.ticker === ticker);
     const isCrypto = assetInfo?.asset_class === 'CRYPTO';
 
+    // 1. Try FMP (Primary)
     try {
         const fmpTicker = isCrypto ? `${ticker}USD` : ticker;
         const data = await apiFetch(`${FMP_BASE_URL}/quote/${fmpTicker}?apikey=${FMP_API_KEY}`);
         const quote = data[0] || {};
         if (quote.price) {
             return {
-                open: quote.open ?? 0,
-                close: quote.price ?? 0,
-                high: quote.dayHigh ?? 0,
-                low: quote.dayLow ?? 0,
-                volume: formatVolume(quote.volume)
+                open: quote.open ?? 0, close: quote.price ?? 0, high: quote.dayHigh ?? 0,
+                low: quote.dayLow ?? 0, volume: formatVolume(quote.volume)
             };
         }
         throw new Error("No valid price in FMP response");
     } catch (fmpError) {
         console.warn(`FMP summary failed for ${ticker}, falling back to AV. Error: ${fmpError.message}`);
-        if (isCrypto) {
-            const url = `${AV_BASE_URL}?function=DIGITAL_CURRENCY_DAILY&symbol=${ticker}&market=USD&apikey=${ALPHA_VANTAGE_API_KEY}`;
-            const data = await apiFetch(url);
-            const timeSeriesKey = Object.keys(data).find(k => k.includes('Digital Currency Daily'));
-            if (!timeSeriesKey || !data[timeSeriesKey]) throw new Error(`Invalid AV crypto response for ${ticker}`);
-            const timeSeries = data[timeSeriesKey];
+        
+        // 2. Try Alpha Vantage (Secondary)
+        try {
+            if (isCrypto) {
+                const url = `${AV_BASE_URL}?function=DIGITAL_CURRENCY_DAILY&symbol=${ticker}&market=USD&apikey=${ALPHA_VANTAGE_API_KEY}`;
+                const data = await apiFetch(url);
+                const timeSeriesKey = Object.keys(data).find(k => k.includes('Digital Currency Daily'));
+                if (!timeSeriesKey || !data[timeSeriesKey]) throw new Error(`Invalid AV crypto response for ${ticker}`);
+                const timeSeries = data[timeSeriesKey];
+                const latestDate = Object.keys(timeSeries)[0];
+                const latestData = timeSeries[latestDate];
+                if (!latestData) throw new Error(`No daily data in AV crypto response for ${ticker}`);
+                return {
+                    open: parseFloat(latestData['1a. open (USD)']), close: parseFloat(latestData['4a. close (USD)']),
+                    high: parseFloat(latestData['2a. high (USD)']), low: parseFloat(latestData['3a. low (USD)']),
+                    volume: formatVolume(latestData['5. volume'])
+                };
+            } else {
+                const url = `${AV_BASE_URL}?function=GLOBAL_QUOTE&symbol=${ticker}&apikey=${ALPHA_VANTAGE_API_KEY}`;
+                const data = await apiFetch(url);
+                const quote = data['Global Quote'];
+                if (!quote || Object.keys(quote).length === 0 || !quote['05. price']) throw new Error(`Invalid AV response for ${ticker}`);
+                return {
+                    open: parseFloat(quote['02. open']), close: parseFloat(quote['05. price']),
+                    high: parseFloat(quote['03. high']), low: parseFloat(quote['04. low']),
+                    volume: formatVolume(quote['06. volume'])
+                };
+            }
+        } catch (avError) {
+            console.warn(`AV summary failed for ${ticker}, falling back to static. Error: ${avError.message}`);
             
-            const latestDate = Object.keys(timeSeries)[0];
-            const latestData = timeSeries[latestDate];
-            if (!latestData) throw new Error(`No daily data in AV crypto response for ${ticker}`);
-        
-            return {
-                open: parseFloat(latestData['1a. open (USD)']),
-                close: parseFloat(latestData['4a. close (USD)']),
-                high: parseFloat(latestData['2a. high (USD)']),
-                low: parseFloat(latestData['3a. low (USD)']),
-                volume: formatVolume(latestData['5. volume'])
-            };
-        } else {
-            const url = `${AV_BASE_URL}?function=GLOBAL_QUOTE&symbol=${ticker}&apikey=${ALPHA_VANTAGE_API_KEY}`;
-            const data = await apiFetch(url);
-            const quote = data['Global Quote'];
-            if (!quote || Object.keys(quote).length === 0) throw new Error(`Invalid AV response for ${ticker}`);
-        
-            return {
-                open: parseFloat(quote['02. open']),
-                close: parseFloat(quote['05. price']),
-                high: parseFloat(quote['03. high']),
-                low: parseFloat(quote['04. low']),
-                volume: formatVolume(quote['06. volume'])
-            };
+            // 3. Fallback to Static Data (Tertiary)
+            const staticAsset = staticAssetsList.find(a => a.ticker === ticker);
+            if (staticAsset && staticAsset.price) {
+                const price = staticAsset.price;
+                return {
+                    open: price * 0.995, close: price, high: price * 1.005, low: price * 0.99,
+                    volume: 'Static'
+                };
+            }
+            throw new Error(`Could not retrieve price summary for ${ticker} from any source.`);
         }
     }
   }, TTL_15_MINUTES),
 
   getFinancialRatios: async ({ ticker }) => withCache(`ratios-${ticker}`, async () => {
+    // 1. Try FMP (Primary)
     try {
-        // FMP is the primary source. Use the more resilient, single /ratios-ttm endpoint.
         const results = await Promise.allSettled([
             apiFetch(`${FMP_BASE_URL}/ratios-ttm/${ticker}?apikey=${FMP_API_KEY}`),
             apiFetch(`${FMP_BASE_URL}/profile/${ticker}?apikey=${FMP_API_KEY}`),
@@ -462,15 +470,11 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
         const ratiosData = results[0].status === 'fulfilled' ? results[0].value : [];
         const profileData = results[1].status === 'fulfilled' ? results[1].value : [];
         const quoteData = results[2].status === 'fulfilled' ? results[2].value : [];
-
         const ratios = ratiosData[0] || {};
         const profile = profileData[0] || {};
         const quote = quoteData[0] || {};
         
-        // If FMP returns no core ratio data, it's a failure that triggers the fallback.
-        if (!ratios.peRatioTTM) {
-            throw new Error(`Insufficient ratio data from FMP for ${ticker}`);
-        }
+        if (!ratios.peRatioTTM) throw new Error(`Insufficient ratio data from FMP for ${ticker}`);
 
         const finalRatios = [
             { label: 'P/E (TTM)', value: ratios.peRatioTTM?.toFixed(2) },
@@ -484,41 +488,43 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
         return finalRatios.map(r => ({ ...r, value: r.value ?? 'N/A' })).filter(r => r.value !== 'N/A');
     } catch (fmpError) {
         console.warn(`FMP ratios failed for ${ticker}, falling back to AV. Error: ${fmpError.message}`);
-        const data = await apiFetch(`${AV_BASE_URL}?function=OVERVIEW&symbol=${ticker}&apikey=${ALPHA_VANTAGE_API_KEY}`);
         
-        if (!data.PERatio) throw new Error(`Invalid AV overview response for ${ticker}`);
-
-        const ratios = [
-            { label: 'P/E (TTM)', value: parseFloat(data.PERatio).toFixed(2) },
-            { label: 'P/B', value: parseFloat(data.PriceToBookRatio).toFixed(2) },
-            { label: 'Dividend Yield', value: `${(parseFloat(data.DividendYield) * 100).toFixed(2)}%` },
-            { label: 'Market Cap', value: formatLargeNumber(data.MarketCapitalization) },
-            { label: 'EPS (TTM)', value: parseFloat(data.EPS).toFixed(2) },
-            { label: 'Beta', value: parseFloat(data.Beta).toFixed(2) }
-        ];
-
-        return ratios.map(r => ({ ...r, value: r.value === 'NaN' || !r.value ? 'N/A' : r.value })).filter(r => r.value !== 'N/A');
+        // 2. Try Alpha Vantage (Secondary)
+        try {
+            const data = await apiFetch(`${AV_BASE_URL}?function=OVERVIEW&symbol=${ticker}&apikey=${ALPHA_VANTAGE_API_KEY}`);
+            if (!data.PERatio || data.PERatio === "None") throw new Error(`Invalid AV overview response for ${ticker}`);
+            const ratios = [
+                { label: 'P/E (TTM)', value: parseFloat(data.PERatio).toFixed(2) },
+                { label: 'P/B', value: parseFloat(data.PriceToBookRatio).toFixed(2) },
+                { label: 'Dividend Yield', value: `${(parseFloat(data.DividendYield) * 100).toFixed(2)}%` },
+                { label: 'Market Cap', value: formatLargeNumber(data.MarketCapitalization) },
+                { label: 'EPS (TTM)', value: parseFloat(data.EPS).toFixed(2) },
+                { label: 'Beta', value: parseFloat(data.Beta).toFixed(2) }
+            ];
+            return ratios.map(r => ({ ...r, value: r.value === 'NaN' || !r.value ? 'N/A' : r.value })).filter(r => r.value !== 'N/A');
+        } catch (avError) {
+            console.warn(`AV ratios failed for ${ticker}, falling back to static. Error: ${avError.message}`);
+            // 3. Fallback to Static (Tertiary)
+            return [];
+        }
     }
   }, TTL_60_DAYS),
 
   getFinancialsSnapshot: async ({ ticker }) => withCache(`financials-${ticker}`, async () => {
+    // 1. Try FMP (Primary)
     try {
         const results = await Promise.allSettled([
             apiFetch(`${FMP_BASE_URL}/income-statement/${ticker}?period=annual&limit=1&apikey=${FMP_API_KEY}`),
             apiFetch(`${FMP_BASE_URL}/balance-sheet-statement/${ticker}?period=annual&limit=1&apikey=${FMP_API_KEY}`),
             apiFetch(`${FMP_BASE_URL}/cash-flow-statement/${ticker}?period=annual&limit=1&apikey=${FMP_API_KEY}`)
         ]);
-
         const incomeData = results[0].status === 'fulfilled' ? results[0].value : [];
         const balanceData = results[1].status === 'fulfilled' ? results[1].value : [];
         const cashflowData = results[2].status === 'fulfilled' ? results[2].value : [];
-        
         const incomeStatement = incomeData[0] || {};
         if (!incomeStatement.revenue) throw new Error("No revenue data from FMP financials");
-
         const balanceSheet = balanceData[0] || {};
         const cashFlowStatement = cashflowData[0] || {};
-        
         return {
             income: [
                 { metric: 'Revenue', value: formatLargeNumber(incomeStatement.revenue) },
@@ -535,36 +541,44 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
         };
     } catch (fmpError) {
         console.warn(`FMP financials failed for ${ticker}, falling back to AV. Error: ${fmpError.message}`);
-        const results = await Promise.allSettled([
-            apiFetch(`${AV_BASE_URL}?function=INCOME_STATEMENT&symbol=${ticker}&apikey=${ALPHA_VANTAGE_API_KEY}`),
-            apiFetch(`${AV_BASE_URL}?function=BALANCE_SHEET&symbol=${ticker}&apikey=${ALPHA_VANTAGE_API_KEY}`),
-            apiFetch(`${AV_BASE_URL}?function=CASH_FLOW&symbol=${ticker}&apikey=${ALPHA_VANTAGE_API_KEY}`)
-        ]);
-
-        const incomeData = results[0].status === 'fulfilled' ? results[0].value : {};
-        const balanceData = results[1].status === 'fulfilled' ? results[1].value : {};
-        const cashflowData = results[2].status === 'fulfilled' ? results[2].value : {};
-
-        const incomeStatement = incomeData.annualReports?.[0] || {};
-        const balanceSheet = balanceData.annualReports?.[0] || {};
-        const cashFlowStatement = cashflowData.annualReports?.[0] || {};
-        
-        if (!incomeStatement.totalRevenue) throw new Error("Invalid AV financials response");
-        
-        return {
-            income: [
-                { metric: 'Revenue', value: formatLargeNumber(incomeStatement.totalRevenue) },
-                { metric: 'Net Income', value: formatLargeNumber(incomeStatement.netIncome) },
-            ],
-            balanceSheet: [
-                { metric: 'Total Assets', value: formatLargeNumber(balanceSheet.totalAssets) },
-                { metric: 'Total Liabilities', value: formatLargeNumber(balanceSheet.totalLiabilities) },
-            ],
-            cashFlow: [
-                { metric: 'Operating Cash Flow', value: formatLargeNumber(cashFlowStatement.operatingCashflow) },
-            ],
-            asOf: incomeStatement.fiscalDateEnding || 'N/A'
-        };
+        // 2. Try Alpha Vantage (Secondary)
+        try {
+            const results = await Promise.allSettled([
+                apiFetch(`${AV_BASE_URL}?function=INCOME_STATEMENT&symbol=${ticker}&apikey=${ALPHA_VANTAGE_API_KEY}`),
+                apiFetch(`${AV_BASE_URL}?function=BALANCE_SHEET&symbol=${ticker}&apikey=${ALPHA_VANTAGE_API_KEY}`),
+                apiFetch(`${AV_BASE_URL}?function=CASH_FLOW&symbol=${ticker}&apikey=${ALPHA_VANTAGE_API_KEY}`)
+            ]);
+            const incomeData = results[0].status === 'fulfilled' ? results[0].value : {};
+            const balanceData = results[1].status === 'fulfilled' ? results[1].value : {};
+            const cashflowData = results[2].status === 'fulfilled' ? results[2].value : {};
+            const incomeStatement = incomeData.annualReports?.[0] || {};
+            const balanceSheet = balanceData.annualReports?.[0] || {};
+            const cashFlowStatement = cashflowData.annualReports?.[0] || {};
+            if (!incomeStatement.totalRevenue) throw new Error("Invalid AV financials response");
+            return {
+                income: [
+                    { metric: 'Revenue', value: formatLargeNumber(incomeStatement.totalRevenue) },
+                    { metric: 'Net Income', value: formatLargeNumber(incomeStatement.netIncome) },
+                ],
+                balanceSheet: [
+                    { metric: 'Total Assets', value: formatLargeNumber(balanceSheet.totalAssets) },
+                    { metric: 'Total Liabilities', value: formatLargeNumber(balanceSheet.totalLiabilities) },
+                ],
+                cashFlow: [
+                    { metric: 'Operating Cash Flow', value: formatLargeNumber(cashFlowStatement.operatingCashflow) },
+                ],
+                asOf: incomeStatement.fiscalDateEnding || 'N/A'
+            };
+        } catch (avError) {
+            console.warn(`AV financials failed for ${ticker}, falling back to static. Error: ${avError.message}`);
+            // 3. Fallback to Static (Tertiary)
+            return {
+                income: [{ metric: 'Revenue', value: 'N/A' }, { metric: 'Net Income', value: 'N/A' }],
+                balanceSheet: [{ metric: 'Total Assets', value: 'N/A' }, { metric: 'Total Liabilities', value: 'N/A' }],
+                cashFlow: [{ metric: 'Operating Cash Flow', value: 'N/A' }],
+                asOf: 'N/A'
+            };
+        }
     }
   }, TTL_60_DAYS),
 
