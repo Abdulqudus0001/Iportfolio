@@ -88,17 +88,24 @@ const withCache = async <T>(key: string, fetcher: () => Promise<T>, ttlSeconds: 
     }
   }
 
-  const liveData = await fetcher();
+  try {
+    const liveData = await fetcher();
+    const { error: upsertError } = await supabaseAdmin
+      .from('api_cache')
+      .upsert({ key, data: liveData, last_fetched: new Date().toISOString() });
 
-  const { error: upsertError } = await supabaseAdmin
-    .from('api_cache')
-    .upsert({ key, data: liveData, last_fetched: new Date().toISOString() });
-
-  if (upsertError) {
-    console.error(`Cache write error for key ${key}:`, upsertError.message);
+    if (upsertError) {
+      console.error(`Cache write error for key ${key}:`, upsertError.message);
+    }
+    return { data: liveData, source: 'live' };
+  } catch(error) {
+     if (cachedData) {
+      console.warn(`Live fetch for ${key} failed. Serving stale data. Error: ${error.message}`);
+      return { data: cachedData.data as T, source: 'cache' };
+    }
+    console.error(`Live fetch for ${key} failed and no cache is available.`, error);
+    throw error;
   }
-
-  return { data: liveData, source: 'live' };
 };
 
 
@@ -167,7 +174,6 @@ const getHistoricalDataForAssets = async (assets: Asset[]): Promise<{ returnsMat
         throw new Error(`Analysis is limited to ${MAX_ASSETS_FOR_ANALYSIS} assets to ensure performance. Please reduce the number of selected assets.`);
     }
 
-    // 1. Fetch all histories in parallel
     const historyPromises = assets.map(asset => handlers.getAssetPriceHistory({ ticker: asset.ticker }));
     const historyResults = await Promise.allSettled(historyPromises);
 
@@ -182,7 +188,6 @@ const getHistoricalDataForAssets = async (assets: Asset[]): Promise<{ returnsMat
 
     if (validAssets.length < 2) throw new Error("Insufficient historical data for at least two assets to perform analysis.");
     
-    // 2. Align data by date
     const dateMap: Map<string, Record<string, number>> = new Map();
     validAssets.forEach(asset => {
         priceHistories[asset.ticker].forEach(({ date, price }) => {
@@ -199,9 +204,8 @@ const getHistoricalDataForAssets = async (assets: Asset[]): Promise<{ returnsMat
             alignedPrices.push({ date, prices: pricesOnDate });
         }
     }
-    const recentAlignedPrices = alignedPrices.slice(-504); // Use last ~2 years of data
+    const recentAlignedPrices = alignedPrices.slice(-504);
 
-    // 3. Calculate daily returns
     const dailyReturns: Record<string, number[]> = {};
     validAssets.forEach(asset => dailyReturns[asset.ticker] = []);
     for (let i = 1; i < recentAlignedPrices.length; i++) {
@@ -215,11 +219,8 @@ const getHistoricalDataForAssets = async (assets: Asset[]): Promise<{ returnsMat
     }
 
     const returnsMatrix = validAssets.map(asset => dailyReturns[asset.ticker]);
-
-    // 4. Calculate mean returns (annualized)
     const meanReturns = returnsMatrix.map(returns => (returns.reduce((a, b) => a + b, 0) / returns.length) * 252);
     
-    // 5. Calculate covariance matrix (annualized)
     const numAssets = validAssets.length;
     const numReturns = dailyReturns[validAssets[0].ticker].length;
     const covMatrix: number[][] = Array(numAssets).fill(0).map(() => Array(numAssets).fill(0));
@@ -254,75 +255,87 @@ const calculatePortfolioMetrics = (weights: number[], meanReturns: number[], cov
 
 // --- API HANDLERS ---
 const handlers: Record<string, (payload: any) => Promise<any>> = {
-  getAvailableAssets: async () => withCache('available-assets', async () => {
-    console.log("Fetching live asset lists from FMP...");
-    const stockListUrl = `${FMP_BASE_URL}/available-traded/list?apikey=${FMP_API_KEY}`;
-    const cryptoListUrl = `${FMP_BASE_URL}/symbol/available-cryptocurrencies?apikey=${FMP_API_KEY}`;
-    
-    const [stockListData, cryptoListData] = await Promise.all([
-        apiFetch(stockListUrl),
-        apiFetch(cryptoListUrl)
-    ]);
+  getAvailableAssets: async () => withCache('available-assets-v6-multi-source', async () => {
+    // --- Step 1 & 2: Fetch stocks from multiple free endpoints for resilience ---
+    const screenerPromise = apiFetch(`${FMP_BASE_URL}/stock-screener?marketCapMoreThan=1000000000&volumeMoreThan=10000&limit=100&apikey=${FMP_API_KEY}`)
+        .then(data => {
+            if (!Array.isArray(data)) {
+                console.warn("FMP /stock-screener returned invalid data.");
+                return [];
+            }
+            return data.map((s: any) => ({
+                ticker: s.symbol, name: s.companyName, country: 'US',
+                sector: s.sector || 'N/A', asset_class: 'EQUITY', price: s.price,
+            } as Asset));
+        });
 
-    if (!Array.isArray(stockListData) || stockListData.length === 0) {
-        throw new Error("FMP API returned no stock data or invalid data from /available-traded/list.");
-    }
-     if (!Array.isArray(cryptoListData) || cryptoListData.length === 0) {
-        throw new Error("FMP API returned no crypto data or invalid data from /symbol/available-cryptocurrencies.");
+    const activesPromise = apiFetch(`${FMP_BASE_URL}/stock_market/actives?limit=100&apikey=${FMP_API_KEY}`)
+        .then(data => {
+            if (!Array.isArray(data)) {
+                console.warn("FMP /stock_market/actives returned invalid data.");
+                return [];
+            }
+            return data.map((s: any) => ({
+                ticker: s.symbol, name: s.name, country: 'US', sector: 'N/A',
+                asset_class: 'EQUITY', price: s.price,
+            } as Asset));
+        });
+
+    // --- Step 3-7: Fetch major cryptocurrencies using the free multi-quote endpoint ---
+    const majorCryptoTickers = ['BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'ADA', 'DOGE', 'AVAX', 'SHIB', 'DOT'];
+    const fmpCryptoTickers = majorCryptoTickers.map(t => `${t}USD`).join(',');
+
+    const cryptoPromise = apiFetch(`${FMP_BASE_URL}/quote/${fmpCryptoTickers}?apikey=${FMP_API_KEY}`)
+        .then(data => {
+            if (!Array.isArray(data)) {
+                console.warn("FMP multi-quote for crypto returned invalid data.");
+                return [];
+            }
+            return data.map((c: any) => ({
+                ticker: c.symbol.replace(/USD$/, ''), name: c.name, country: 'CRYPTO',
+                sector: 'Cryptocurrency', asset_class: 'CRYPTO', price: c.price,
+            } as Asset));
+        });
+
+    // --- Step 8: Combine all results ---
+    const [screenerResult, activesResult, cryptoResult] = await Promise.allSettled([screenerPromise, activesPromise, cryptoPromise]);
+
+    if (screenerResult.status === 'rejected') console.error("Failed to fetch from /stock-screener:", screenerResult.reason?.message);
+    if (activesResult.status === 'rejected') console.error("Failed to fetch from /stock_market/actives:", activesResult.reason?.message);
+    if (cryptoResult.status === 'rejected') console.error("Failed to fetch from /quote for cryptos:", cryptoResult.reason?.message);
+
+    const screenerStocks: Asset[] = screenerResult.status === 'fulfilled' ? screenerResult.value : [];
+    const activesStocks: Asset[] = activesResult.status === 'fulfilled' ? activesResult.value : [];
+    const cryptos: Asset[] = cryptoResult.status === 'fulfilled' ? cryptoResult.value : [];
+
+    const combinedAssets = new Map<string, Asset>();
+    
+    screenerStocks.forEach(asset => combinedAssets.set(asset.ticker, asset));
+    activesStocks.forEach(asset => { if (!combinedAssets.has(asset.ticker)) combinedAssets.set(asset.ticker, asset); });
+    cryptos.forEach(asset => combinedAssets.set(asset.ticker, asset));
+
+    const allAssets = Array.from(combinedAssets.values());
+
+    if (allAssets.length === 0) {
+        console.error("Could not find any valid assets from FMP. All available free endpoints may have failed. Returning an empty list to prevent a crash.");
+        return { assets: [] };
     }
 
-    const stocks: Asset[] = [];
-    for (const s of stockListData) {
-        if (stocks.length >= 99) break;
-        const exchange = s.exchange || '';
-        // More robust exchange filter to avoid timeouts on large datasets
-        if (s.price && s.price > 1 && (exchange.includes('NASDAQ') || exchange.includes('New York Stock Exchange'))) {
-             stocks.push({
-                ticker: s.symbol,
-                name: s.name,
-                country: 'US',
-                sector: 'N/A', // Sector data is not available in this bulk endpoint
-                asset_class: 'EQUITY',
-                price: s.price,
-            });
-        }
-    }
-        
-    const cryptos: Asset[] = [];
-    for (const c of cryptoListData) {
-        if (cryptos.length >= 97) break;
-        if (c.symbol && c.symbol.endsWith('USD')) {
-            cryptos.push({
-                ticker: c.symbol.replace('USD', ''),
-                name: c.name,
-                country: 'CRYPTO',
-                sector: 'Cryptocurrency',
-                asset_class: 'CRYPTO',
-                price: undefined,
-            });
-        }
-    }
-    
-    console.log(`Successfully processed ${stocks.length} stocks and ${cryptos.length} cryptos from FMP.`);
-    if (stocks.length === 0 && cryptos.length === 0) {
-        throw new Error("Could not find any valid assets matching the criteria from the FMP API.");
-    }
-    return { assets: [...stocks, ...cryptos] };
+    return { assets: allAssets };
   }, TTL_6_HOURS),
 
   getAssetPriceHistory: async ({ ticker }) => withCache(`price-history-${ticker}`, async () => {
     const allAssetsResponse = await handlers.getAvailableAssets({});
-    const allAssets: Asset[] = allAssetsResponse.data.assets;
-    const assetInfo = allAssets.find((a: Asset) => a.ticker === ticker);
+    const assetInfo = allAssetsResponse.data.assets.find((a: Asset) => a.ticker === ticker);
     const isCrypto = assetInfo?.asset_class === 'CRYPTO';
-
     const fmpTicker = isCrypto ? `${ticker}USD` : ticker;
+    
     const url = `${FMP_BASE_URL}/historical-price-full/${fmpTicker}?apikey=${FMP_API_KEY}`;
     const data = await apiFetch(url);
     const history = (data?.historical || data || []).map((d: any) => ({ date: d.date, price: d.close })).reverse();
     if (history.length > 0) return history;
 
-    throw new Error(`No historical price data could be found for ${ticker} from FMP.`);
+    throw new Error(`No historical price data could be found for ${ticker}.`);
   }, TTL_60_DAYS),
   
   getAssetPriceSummary: async ({ ticker }) => withCache(`price-summary-${ticker}`, async () => {
@@ -339,11 +352,14 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
             low: quote.dayLow ?? 0, volume: formatVolume(quote.volume)
         };
     }
-    throw new Error(`Could not retrieve price summary for ${ticker} from FMP.`);
+    throw new Error(`Could not retrieve price summary for ${ticker}.`);
   }, TTL_15_MINUTES),
 
   getFinancialRatios: async ({ ticker }) => withCache(`ratios-${ticker}`, async () => {
-    const finalRatios: { label: string; value: string | number }[] = [];
+    const allAssetsResponse = await handlers.getAvailableAssets({});
+    const assetInfo = allAssetsResponse.data.assets.find((a: Asset) => a.ticker === ticker);
+    if (assetInfo?.asset_class !== 'EQUITY') return [];
+
     try {
         const [ratiosResult, profileResult, quoteResult] = await Promise.allSettled([
             apiFetch(`${FMP_BASE_URL}/ratios-ttm/${ticker}?apikey=${FMP_API_KEY}`),
@@ -354,7 +370,8 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
         const ratios = (ratiosResult.status === 'fulfilled' && ratiosResult.value[0]) ? ratiosResult.value[0] : {};
         const profile = (profileResult.status === 'fulfilled' && profileResult.value[0]) ? profileResult.value[0] : {};
         const quote = (quoteResult.status === 'fulfilled' && quoteResult.value[0]) ? quoteResult.value[0] : {};
-
+        
+        const finalRatios: { label: string; value: string | number }[] = [];
         if (ratios.peRatioTTM) finalRatios.push({ label: 'P/E (TTM)', value: ratios.peRatioTTM.toFixed(2) });
         if (ratios.priceToBookRatioTTM) finalRatios.push({ label: 'P/B', value: ratios.priceToBookRatioTTM.toFixed(2) });
         if (ratios.dividendYieldTTM) finalRatios.push({ label: 'Dividend Yield', value: `${(ratios.dividendYieldTTM * 100).toFixed(2)}%` });
@@ -364,12 +381,18 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
         
         return finalRatios;
     } catch (e) {
-        console.warn(`FMP provided no ratio data for ${ticker}. Returning empty array. Error: ${e.message}`);
+        console.warn(`Could not fetch financial ratios for ${ticker} from FMP. Returning empty. Error: ${e.message}`);
         return [];
     }
   }, TTL_60_DAYS),
 
   getFinancialsSnapshot: async ({ ticker }) => withCache(`financials-${ticker}`, async () => {
+    const allAssetsResponse = await handlers.getAvailableAssets({});
+    const assetInfo = allAssetsResponse.data.assets.find((a: Asset) => a.ticker === ticker);
+    if (assetInfo?.asset_class !== 'EQUITY') {
+        return { income: [], balanceSheet: [], cashFlow: [], asOf: 'N/A' };
+    }
+    
     try {
         const [incomeResult, balanceResult, cashflowResult] = await Promise.allSettled([
             apiFetch(`${FMP_BASE_URL}/income-statement/${ticker}?period=annual&limit=1&apikey=${FMP_API_KEY}`),
@@ -395,10 +418,8 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
 
         return result;
     } catch (e) {
-        console.warn(`FMP provided no financials for ${ticker}. Returning empty object. Error: ${e.message}`);
-        return {
-            income: [], balanceSheet: [], cashFlow: [], asOf: 'N/A'
-        };
+        console.warn(`Could not fetch financials for ${ticker}. Returning empty. Error: ${e.message}`);
+        return { income: [], balanceSheet: [], cashFlow: [], asOf: 'N/A' };
     }
   }, TTL_60_DAYS),
 
@@ -414,25 +435,20 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
       apiFetch(`${FMP_BASE_URL}/quote/${ticker}?apikey=${FMP_API_KEY}`)
     ]);
 
-    if (results[0].status === 'rejected') {
-      return null;
-    }
+    if (results[0].status === 'rejected') return null;
     
     const dividendData = results[0].value;
     const quoteData = results[1].status === 'fulfilled' ? results[1].value : [];
     
     const historical = dividendData.historical || dividendData;
     if (!historical || historical.length === 0) return null;
+
     const lastDividend = historical[0];
     const quote = quoteData[0] || {};
     const yieldValue = quote.dividendYield || ((lastDividend.dividend * 4) / quote.price);
-    return {
-        ticker: ticker,
-        yield: yieldValue,
-        amountPerShare: lastDividend.dividend,
-        payDate: lastDividend.paymentDate,
-        projectedAnnualIncome: 0
-    };
+
+    return { ticker, yield: yieldValue, amountPerShare: lastDividend.dividend,
+        payDate: lastDividend.paymentDate, projectedAnnualIncome: 0 };
   }, TTL_60_DAYS),
 
   getMarketNews: async () => withCache('market-news', async () => {
@@ -469,9 +485,6 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
     return { data: result, source: 'live' };
   },
   generateAndOptimizePortfolio: async ({ template, optimizationModel, runner, constraints }) => {
-    //
-    // START: REWRITTEN LOGIC TO ELIMINATE HARDCODED ASSETS
-    //
     const { data: { assets: availableAssets } } = await handlers.getAvailableAssets({});
     if (!availableAssets || availableAssets.length === 0) {
         throw new Error("Could not fetch the list of available assets from the provider. Please try again later.");
@@ -481,7 +494,6 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
     const availableStocks = availableAssets.filter(a => a.asset_class === 'EQUITY');
     const availableCryptos = availableAssets.filter(a => a.asset_class === 'CRYPTO');
 
-    // Sort stocks by price as a proxy for market cap/prominence, since market cap isn't in the free list endpoint
     availableStocks.sort((a, b) => (b.price ?? 0) - (a.price ?? 0));
     
     switch (template) {
@@ -493,7 +505,6 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
         }
         case 'Balanced': {
             const topStocks = availableStocks.slice(0, 8);
-            // Select major cryptos if they exist in the available list
             const majorCryptos = ['BTC', 'ETH'].map(ticker => availableCryptos.find(c => c.ticker === ticker)).filter(Boolean) as Asset[];
             selectedAssets = [...topStocks, ...majorCryptos];
             break;
@@ -503,11 +514,8 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
     }
 
     if (selectedAssets.length < 2) {
-        throw new Error(`The '${template}' template could not be constructed with enough assets from the available live data. Only ${selectedAssets.length} assets were found.`);
+        throw new Error(`The '${template}' template could not be constructed with enough assets from the available live data.`);
     }
-    //
-    // END: REWRITTEN LOGIC
-    //
     
     const { meanReturns, covMatrix, validAssets } = await getHistoricalDataForAssets(selectedAssets);
 
@@ -528,7 +536,6 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
         if (total === 0) continue;
         let weights = rand.map(r => r / total);
         
-        // --- APPLY CONSTRAINTS ---
         if (constraints?.maxAssetWeight && weights.some(w => w > constraints.maxAssetWeight)) continue;
         if (constraints?.maxSectorWeight) {
             const sectorWeights: Record<string, number> = {};
@@ -561,13 +568,11 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
     const riskAversion = 2.5;
     const tau = 0.05; // Scalar representing uncertainty in prior estimates
 
-    // 1. Calculate Equilibrium Returns (Prior)
     const equalWeights = Array(validAssets.length).fill(1 / validAssets.length);
     const equilibriumReturns = scale(multiply(covMatrix, transpose([equalWeights])), riskAversion)[0];
 
     const numAssets = validAssets.length;
     const numViews = views.length;
-    // 2. Construct P (picks assets for views) and Q (expected returns for views) matrices
     const P = Array(numViews).fill(0).map(() => Array(numAssets).fill(0));
     const Q = views.map(view => view.expected_return_diff);
     const assetIndexMap = new Map(validAssets.map((asset, i) => [asset.ticker, i]));
@@ -579,11 +584,9 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
         if (index2 !== undefined) P[i][index2] = view.direction === 'outperform' ? -1 : 1;
     });
 
-    // 3. Construct Omega (uncertainty of views) matrix
     const P_tauSigma_PT = multiply(P, multiply(scale(covMatrix, tau), transpose(P)));
     const Omega = P_tauSigma_PT.map((row, i) => row.map((val, j) => (i === j ? val / (views[i].confidence || 0.5) : 0)));
 
-    // 4. Calculate posterior returns using Black-Litterman formula
     const tauSigmaInv = invert(scale(covMatrix, tau));
     const OmegaInv = invert(Omega);
     
@@ -599,7 +602,6 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
     const posteriorReturnsMatrix = multiply(term1, term2);
     const posteriorReturns = transpose(posteriorReturnsMatrix)[0];
 
-    // 5. Run MCMC simulation with the new posterior returns
     const simulations = [];
     let bestSharpePortfolio = { sharpeRatio: -Infinity, weights: [], returns: 0, volatility: 0 };
     
@@ -628,7 +630,7 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
     return { bestSharpe: bestSharpeResult, simulations, averageWeights: bestSharpeResult.weights };
   },
 
-  runBacktest: async({ portfolio, timeframe, benchmarkTicker }) => { /* ... existing implementation ... */ return { dates: [], portfolioValues: [], benchmarkValues: [], totalReturn: 0.1, benchmarkReturn: 0.08, maxDrawdown: -0.05 }; },
+  runBacktest: async({ portfolio, timeframe, benchmarkTicker }) => { return { dates: [], portfolioValues: [], benchmarkValues: [], totalReturn: 0.1, benchmarkReturn: 0.08, maxDrawdown: -0.05 }; },
   getCorrelationMatrix: async({ assets }) => { const { covMatrix, validAssets } = await getHistoricalDataForAssets(assets); return { data: { assets: validAssets.map(a => a.ticker), matrix: covMatrix }, source: 'live'}; },
   getRiskReturnContribution: async ({ portfolio }) => {
     const { meanReturns, covMatrix, validAssets } = await getHistoricalDataForAssets(portfolio.weights);
@@ -705,7 +707,7 @@ serve(async (req) => {
     const result = await handler(payload);
     
     if (result instanceof ReadableStream) {
-        return new Response(result, { headers: { ...corsHeaders, 'Content-Type': 'text/plain; charset=utf-t' } });
+        return new Response(result, { headers: { ...corsHeaders, 'Content-Type': 'text/plain; charset=utf-8' } });
     }
 
     return new Response(JSON.stringify(result), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });

@@ -74,12 +74,14 @@ const AssetBrowser: React.FC<AssetBrowserProps> = ({ openAiChat }) => {
         .then(assets => {
             setMasterAssetList(assets);
             if (assets.length > 0) {
-                setSelectedAsset(assets[0]);
+                // Select the first asset by default
+                const firstAsset = assets.sort((a,b) => a.ticker.localeCompare(b.ticker))[0];
+                setSelectedAsset(firstAsset);
             }
         })
         .catch(err => {
             console.error(err);
-            setError("Could not load the list of available assets.");
+            setError("Could not load the list of available assets. The financial data provider might be temporarily unavailable.");
         })
         .finally(() => setIsLoadingList(false));
   }, []);
@@ -89,26 +91,38 @@ const AssetBrowser: React.FC<AssetBrowserProps> = ({ openAiChat }) => {
       setIsLoadingDetails(true);
       setError(null);
       setAssetData(null);
-      Promise.all([
+      
+      Promise.allSettled([
         marketDataService.getFinancialRatios(selectedAsset.ticker),
         marketDataService.getFinancialsSnapshot(selectedAsset.ticker),
         marketDataService.getAssetPriceSummary(selectedAsset.ticker)
       ]).then(([ratiosResult, financialsResult, summaryResult]) => {
-        const { data: ratios } = ratiosResult;
-        const { data: financials } = financialsResult;
-        const { data: summary } = summaryResult;
+        
+        // Handle summary - this one is critical for the view to be useful
+        if (summaryResult.status === 'rejected') {
+            throw new Error(summaryResult.reason?.message || `Could not load critical price data for ${selectedAsset.ticker}.`);
+        }
+        const summary = summaryResult.value.data;
 
-        const hasMeaningfulData = summary.close > 0 || ratios.some(r => r.value !== 'N/A');
+        // Handle ratios - non-critical, can fail gracefully
+        const ratios = ratiosResult.status === 'fulfilled' ? ratiosResult.value.data : [];
+        if (ratiosResult.status === 'rejected') console.warn(`Financial ratios failed to load for ${selectedAsset.ticker}:`, ratiosResult.reason);
 
-        if (!hasMeaningfulData && selectedAsset.country !== 'US' && selectedAsset.country !== 'CRYPTO') {
-            setError(`Detailed data for assets like ${selectedAsset.ticker} may be limited. Our AI can help find alternatives from major markets.`);
+        // Handle financials - non-critical, can fail gracefully
+        const financials = financialsResult.status === 'fulfilled' ? financialsResult.value.data : { income: [], balanceSheet: [], cashFlow: [], asOf: 'N/A' };
+        if (financialsResult.status === 'rejected') console.warn(`Financials snapshot failed to load for ${selectedAsset.ticker}:`, financialsResult.reason);
+
+        const hasMeaningfulData = summary.close > 0 || ratios.length > 0;
+
+        if (!hasMeaningfulData) {
+            setError(`Detailed data for assets like ${selectedAsset.ticker} may be limited.`);
             setAssetData(null);
         } else {
             setAssetData({ ratios, financials, summary });
         }
       }).catch(err => {
-          console.error(`Failed to fetch data for ${selectedAsset.ticker}`, err);
-          const defaultError = `Sorry, we couldn't load details for ${selectedAsset.ticker}. The data provider might be busy.`;
+          console.error(`Failed to fetch critical data for ${selectedAsset.ticker}`, err);
+          const defaultError = `Sorry, we couldn't load details for ${selectedAsset.ticker}. The data provider might be busy or does not support this asset.`;
           setError(err.message || defaultError);
       }).finally(() => setIsLoadingDetails(false));
     }
@@ -237,7 +251,7 @@ const AssetBrowser: React.FC<AssetBrowserProps> = ({ openAiChat }) => {
                         <div className="font-bold">{asset.ticker}</div>
                         <div className="text-sm opacity-80">{asset.name}</div>
                     </div>
-                    {asset.price && <span className="font-mono text-sm px-2">${asset.price.toFixed(2)}</span>}
+                    {asset.price != null && <span className="font-mono text-sm px-2">${asset.price.toFixed(2)}</span>}
                     <button onClick={() => toggleWatchlist(asset.ticker)} className="p-1 rounded-full hover:bg-yellow-200 dark:hover:bg-yellow-700">
                         <StarIcon filled={isOnWatchlist(asset.ticker)} />
                     </button>
@@ -247,9 +261,9 @@ const AssetBrowser: React.FC<AssetBrowserProps> = ({ openAiChat }) => {
            ) : (
             <div className="text-center py-10 px-4">
               <p className="text-light-text-secondary dark:text-dark-text-secondary">
-                No assets found matching your criteria.
+                {error || "No assets found matching your criteria."}
               </p>
-              {searchTerm && (
+              {searchTerm && !error && (
                 <div className="mt-4 p-4 bg-blue-50 dark:bg-blue-900/50 border border-blue-200 dark:border-blue-700 rounded-lg">
                   <h4 className="font-semibold text-brand-primary">Can't find your asset?</h4>
                   <p className="text-sm text-blue-800 dark:text-blue-200 my-2">
@@ -282,26 +296,10 @@ const AssetBrowser: React.FC<AssetBrowserProps> = ({ openAiChat }) => {
                 </div>
             </Card>
 
-            {error && (
+            {error && !isLoadingDetails && (
                 <Card>
                     <div className="text-center py-4 px-4">
                         <p className="text-red-500">{error}</p>
-                        {(error.includes('limited')) && selectedAsset && (
-                            <div className="mt-4 p-4 bg-blue-50 dark:bg-blue-900/50 border border-blue-200 dark:border-blue-700 rounded-lg">
-                                <h4 className="font-semibold text-brand-primary">Find an Alternative?</h4>
-                                <p className="text-sm text-blue-800 dark:text-blue-200 my-2">
-                                    Our AI can suggest similar stocks or ETFs from major global markets.
-                                </p>
-                                <Button onClick={() => {
-                                    const prompt = `I'm interested in ${selectedAsset.name} (${selectedAsset.ticker}), a stock from ${selectedAsset.country}, but detailed data might be limited. Can you suggest 3-5 alternative stocks or ETFs from available major markets (like US, UK, etc.) that have a similar profile (e.g., same industry, similar market cap, or investment theme)? For each suggestion, briefly explain why it's a good alternative and provide its ticker symbol.`;
-                                    openAiChat(prompt);
-                                }}>
-                                    <div className="flex items-center gap-2">
-                                        <MagicWandIcon /> <span>Find Alternatives</span>
-                                    </div>
-                                </Button>
-                            </div>
-                        )}
                     </div>
                 </Card>
             )}
@@ -309,13 +307,15 @@ const AssetBrowser: React.FC<AssetBrowserProps> = ({ openAiChat }) => {
             {!isLoadingDetails && !error && assetData && (
                 <>
                     <Card title="Daily Price Summary">
-                        <div className="grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-2">
-                            <SummaryItem label="Open" value={`$${assetData.summary.open.toFixed(2)}`} />
-                            <SummaryItem label="High" value={`$${assetData.summary.high.toFixed(2)}`} />
-                            <SummaryItem label="Close" value={`$${assetData.summary.close.toFixed(2)}`} />
-                            <SummaryItem label="Low" value={`$${assetData.summary.low.toFixed(2)}`} />
-                            <SummaryItem label="Volume" value={assetData.summary.volume} />
-                        </div>
+                        {assetData.summary.close > 0 ? (
+                            <div className="grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-2">
+                                <SummaryItem label="Open" value={`$${assetData.summary.open.toFixed(2)}`} />
+                                <SummaryItem label="High" value={`$${assetData.summary.high.toFixed(2)}`} />
+                                <SummaryItem label="Close" value={`$${assetData.summary.close.toFixed(2)}`} />
+                                <SummaryItem label="Low" value={`$${assetData.summary.low.toFixed(2)}`} />
+                                <SummaryItem label="Volume" value={assetData.summary.volume} />
+                            </div>
+                        ) : <p className="text-sm text-center text-gray-500">Price summary data is not available.</p>}
                     </Card>
 
                     <Card title="Price Chart (1 Year)">
@@ -329,41 +329,45 @@ const AssetBrowser: React.FC<AssetBrowserProps> = ({ openAiChat }) => {
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <Card title="Key Ratios">
-                            <ul className="space-y-2">
-                                {assetData.ratios.map(ratio => (
-                                    <li key={ratio.label} className="flex justify-between items-center text-sm">
-                                        <div className="flex items-center gap-1.5 text-light-text-secondary dark:text-dark-text-secondary">
-                                            <span>{ratio.label}</span>
-                                            <Tooltip text={ratioDefinitions[ratio.label] || 'No definition available.'}>
-                                                <InfoIcon />
-                                            </Tooltip>
-                                        </div>
-                                        <span className="font-semibold">{ratio.value}</span>
-                                    </li>
-                                ))}
-                            </ul>
+                            {assetData.ratios.length > 0 ? (
+                                <ul className="space-y-2">
+                                    {assetData.ratios.map(ratio => (
+                                        <li key={ratio.label} className="flex justify-between items-center text-sm">
+                                            <div className="flex items-center gap-1.5 text-light-text-secondary dark:text-dark-text-secondary">
+                                                <span>{ratio.label}</span>
+                                                <Tooltip text={ratioDefinitions[ratio.label] || 'No definition available.'}>
+                                                    <InfoIcon />
+                                                </Tooltip>
+                                            </div>
+                                            <span className="font-semibold">{ratio.value}</span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            ) : <p className="text-sm text-center text-gray-500">Key ratios are not available for this asset.</p>}
                         </Card>
                         <Card title={`Financials Snapshot (As of ${assetData.financials.asOf})`}>
-                            <div className="space-y-4">
-                                <div>
-                                    <h4 className="font-bold mb-1">Income Statement</h4>
-                                    {assetData.financials.income.map(item => <p key={item.metric} className="flex justify-between text-sm"><span>{item.metric}:</span> <span>{item.value}</span></p>)}
+                           {assetData.financials.income.length > 0 || assetData.financials.balanceSheet.length > 0 ? (
+                                <div className="space-y-4">
+                                    <div>
+                                        <h4 className="font-bold mb-1">Income Statement</h4>
+                                        {assetData.financials.income.map(item => <p key={item.metric} className="flex justify-between text-sm"><span>{item.metric}:</span> <span>{item.value}</span></p>)}
+                                    </div>
+                                    <div>
+                                        <h4 className="font-bold mb-1">Balance Sheet</h4>
+                                        {assetData.financials.balanceSheet.map(item => <p key={item.metric} className="flex justify-between text-sm"><span>{item.metric}:</span> <span>{item.value}</span></p>)}
+                                    </div>
                                 </div>
-                                <div>
-                                    <h4 className="font-bold mb-1">Balance Sheet</h4>
-                                    {assetData.financials.balanceSheet.map(item => <p key={item.metric} className="flex justify-between text-sm"><span>{item.metric}:</span> <span>{item.value}</span></p>)}
-                                </div>
-                            </div>
+                           ) : <p className="text-sm text-center text-gray-500">Financials are not available for this asset.</p>}
                         </Card>
                     </div>
                 </>
             )}
           </>
-        ) : (
+        ) : !isLoadingList && !error ? (
           <Card>
-            <p>Select an asset to view details.</p>
+            <p className="text-center py-16">Select an asset from the list to view details.</p>
           </Card>
-        )}
+        ) : null}
       </div>
     </div>
   );
