@@ -256,7 +256,7 @@ const calculatePortfolioMetrics = (weights: number[], meanReturns: number[], cov
 const handlers: Record<string, (payload: any) => Promise<any>> = {
   getAvailableAssets: async () => withCache('available-assets', async () => {
     console.log("Fetching live asset lists from FMP...");
-    const stockListUrl = `${FMP_BASE_URL}/stock/list?apikey=${FMP_API_KEY}`;
+    const stockListUrl = `${FMP_BASE_URL}/available-traded/list?apikey=${FMP_API_KEY}`;
     const cryptoListUrl = `${FMP_BASE_URL}/symbol/available-cryptocurrencies?apikey=${FMP_API_KEY}`;
     
     const [stockListData, cryptoListData] = await Promise.all([
@@ -264,38 +264,49 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
         apiFetch(cryptoListUrl)
     ]);
 
-    if (!stockListData || stockListData.length === 0) {
-        throw new Error("FMP API returned no stock data from /stock/list.");
+    if (!Array.isArray(stockListData) || stockListData.length === 0) {
+        throw new Error("FMP API returned no stock data or invalid data from /available-traded/list.");
     }
-     if (!cryptoListData || cryptoListData.length === 0) {
-        throw new Error("FMP API returned no crypto data from /symbol/available-cryptocurrencies.");
+     if (!Array.isArray(cryptoListData) || cryptoListData.length === 0) {
+        throw new Error("FMP API returned no crypto data or invalid data from /symbol/available-cryptocurrencies.");
     }
 
-    const stocks: Asset[] = stockListData
-        .filter((s: any) => s.price && s.price > 1 && s.exchangeShortName && ['NASDAQ', 'NYSE'].includes(s.exchangeShortName) && s.type === 'stock')
-        .slice(0, 99) // Adhere to free tier limit
-        .map((s: any) => ({
-            ticker: s.symbol,
-            name: s.name,
-            country: 'US', // Assume US for major exchanges
-            sector: 'N/A', // Sector data requires a separate, premium API call per asset.
-            asset_class: 'EQUITY',
-            price: s.price,
-        }));
+    const stocks: Asset[] = [];
+    for (const s of stockListData) {
+        if (stocks.length >= 99) break;
+        const exchange = s.exchange || '';
+        // More robust exchange filter to avoid timeouts on large datasets
+        if (s.price && s.price > 1 && (exchange.includes('NASDAQ') || exchange.includes('New York Stock Exchange'))) {
+             stocks.push({
+                ticker: s.symbol,
+                name: s.name,
+                country: 'US',
+                sector: 'N/A', // Sector data is not available in this bulk endpoint
+                asset_class: 'EQUITY',
+                price: s.price,
+            });
+        }
+    }
         
-    const cryptos: Asset[] = cryptoListData
-        .filter((c: any) => c.symbol.endsWith('USD')) // Filter for USD pairs
-        .slice(0, 97) // Adhere to free tier limit
-        .map((c: any) => ({
-            ticker: c.symbol.replace('USD', ''), // FMP uses BTCUSD, app expects BTC
-            name: c.name,
-            country: 'CRYPTO',
-            sector: 'Cryptocurrency',
-            asset_class: 'CRYPTO',
-            price: undefined, // Price is not in this endpoint, will be fetched on demand
-        }));
+    const cryptos: Asset[] = [];
+    for (const c of cryptoListData) {
+        if (cryptos.length >= 97) break;
+        if (c.symbol && c.symbol.endsWith('USD')) {
+            cryptos.push({
+                ticker: c.symbol.replace('USD', ''),
+                name: c.name,
+                country: 'CRYPTO',
+                sector: 'Cryptocurrency',
+                asset_class: 'CRYPTO',
+                price: undefined,
+            });
+        }
+    }
     
-    console.log(`Successfully fetched ${stocks.length} stocks and ${cryptos.length} cryptos from FMP.`);
+    console.log(`Successfully processed ${stocks.length} stocks and ${cryptos.length} cryptos from FMP.`);
+    if (stocks.length === 0 && cryptos.length === 0) {
+        throw new Error("Could not find any valid assets matching the criteria from the FMP API.");
+    }
     return { assets: [...stocks, ...cryptos] };
   }, TTL_6_HOURS),
 
