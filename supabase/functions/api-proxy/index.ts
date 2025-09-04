@@ -458,36 +458,45 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
     return { data: result, source: 'live' };
   },
   generateAndOptimizePortfolio: async ({ template, optimizationModel, runner, constraints }) => {
+    //
+    // START: REWRITTEN LOGIC TO ELIMINATE HARDCODED ASSETS
+    //
     const { data: { assets: availableAssets } } = await handlers.getAvailableAssets({});
+    if (!availableAssets || availableAssets.length === 0) {
+        throw new Error("Could not fetch the list of available assets from the provider. Please try again later.");
+    }
+    
     let selectedAssets: Asset[] = [];
+    const availableStocks = availableAssets.filter(a => a.asset_class === 'EQUITY');
+    const availableCryptos = availableAssets.filter(a => a.asset_class === 'CRYPTO');
 
+    // Sort stocks by price as a proxy for market cap/prominence, since market cap isn't in the free list endpoint
+    availableStocks.sort((a, b) => (b.price ?? 0) - (a.price ?? 0));
+    
     switch (template) {
         case 'Aggressive': {
-            const techStocks = availableAssets
-                .filter(a => a.sector === 'Technology' && a.asset_class === 'EQUITY')
-                .sort((a, b) => (b.price ?? 0) - (a.price ?? 0))
-                .slice(0, 15);
-            const majorCryptos = availableAssets.filter(a => ['BTC', 'ETH', 'SOL'].includes(a.ticker));
-            selectedAssets = [...techStocks, ...majorCryptos];
+            const topStocks = availableStocks.slice(0, 10);
+            const topCryptos = availableCryptos.slice(0, 5);
+            selectedAssets = [...topStocks, ...topCryptos];
             break;
         }
         case 'Balanced': {
-            const tickersToUse = ['SPY', 'AGG', 'GLD', 'IEFA', 'JNJ', 'PG'];
-            selectedAssets = availableAssets.filter(a => tickersToUse.includes(a.ticker));
+            const topStocks = availableStocks.slice(0, 8);
+            // Select major cryptos if they exist in the available list
+            const majorCryptos = ['BTC', 'ETH'].map(ticker => availableCryptos.find(c => c.ticker === ticker)).filter(Boolean) as Asset[];
+            selectedAssets = [...topStocks, ...majorCryptos];
             break;
         }
-        case 'Shariah': {
-            // Shariah compliance data is not available on the free tier API.
-            // As a safe default, this template will now use the same assets as the 'Balanced' portfolio.
-            const tickersToUse = ['SPY', 'AGG', 'GLD', 'IEFA', 'JNJ', 'PG'];
-            selectedAssets = availableAssets.filter(a => tickersToUse.includes(a.ticker));
-            break;
-        }
+        default:
+             throw new Error(`Invalid or unsupported portfolio template: ${template}`);
     }
-    
+
     if (selectedAssets.length < 2) {
-        selectedAssets = (await handlers.getAvailableAssets({})).data.assets.filter((a:Asset) => ['SPY', 'QQQ', 'AGG', 'GLD'].includes(a.ticker));
+        throw new Error(`The '${template}' template could not be constructed with enough assets from the available live data. Only ${selectedAssets.length} assets were found.`);
     }
+    //
+    // END: REWRITTEN LOGIC
+    //
     
     const { meanReturns, covMatrix, validAssets } = await getHistoricalDataForAssets(selectedAssets);
 

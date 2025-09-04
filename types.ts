@@ -7,7 +7,6 @@ export enum UserTier {
 export enum PortfolioTemplate {
     Balanced = 'Balanced',
     Aggressive = 'Aggressive',
-    Shariah = 'Shariah',
     Custom = 'Custom',
 }
 
