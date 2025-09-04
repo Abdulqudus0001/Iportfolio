@@ -50,7 +50,7 @@ const FMP_API_KEY = Deno.env.get("FMP_API_KEY");
 const NEWS_API_KEY = Deno.env.get("NEWS_API_KEY");
 const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
 
-const FMP_BASE_URL = 'https://financialmodelingprep.com/stable';
+const FMP_BASE_URL = 'https://financialmodelingprep.com/api/v3';
 
 let supabaseAdmin: SupabaseClient;
 try {
@@ -255,48 +255,48 @@ const calculatePortfolioMetrics = (weights: number[], meanReturns: number[], cov
 // --- API HANDLERS ---
 const handlers: Record<string, (payload: any) => Promise<any>> = {
   getAvailableAssets: async () => withCache('available-assets', async () => {
-    try {
-        console.log("Fetching live asset lists from FMP...");
-        const stockListDataPromise = apiFetch(`${FMP_BASE_URL}/stock-list?apikey=${FMP_API_KEY}`);
-        const cryptoListDataPromise = apiFetch(`${FMP_BASE_URL}/cryptocurrency-list?apikey=${FMP_API_KEY}`);
-        
-        const [stockListData, cryptoListData] = await Promise.all([stockListDataPromise, cryptoListDataPromise]);
-        
-        if (!stockListData || stockListData.length === 0) {
-            throw new Error("FMP API returned no stock data from /stock-list.");
-        }
+    console.log("Fetching live asset lists from FMP...");
+    const stockListUrl = `${FMP_BASE_URL}/stock/list?apikey=${FMP_API_KEY}`;
+    const cryptoListUrl = `${FMP_BASE_URL}/symbol/available-cryptocurrencies?apikey=${FMP_API_KEY}`;
+    
+    const [stockListData, cryptoListData] = await Promise.all([
+        apiFetch(stockListUrl),
+        apiFetch(cryptoListUrl)
+    ]);
 
-        // FMP's free tier provides a specific list of assets. We will use what they give us, capped at 99 as per the user's tier.
-        const stocks: Asset[] = stockListData
-            .filter((s: any) => s.price && s.price > 1 && s.exchangeShortName && ['NASDAQ', 'NYSE'].includes(s.exchangeShortName))
-            .slice(0, 99) 
-            .map((s: any) => ({
-                ticker: s.symbol,
-                name: s.name,
-                country: 'US',
-                sector: 'N/A', // Sector data is not in this endpoint, would require another call per asset.
-                asset_class: 'EQUITY',
-                price: s.price,
-            }));
-            
-        // User mentioned they can access 97 cryptos.
-        const cryptos: Asset[] = cryptoListData.slice(0, 97).map((c: any) => ({
-            ticker: c.symbol.replace('USD', ''), // FMP uses BTCUSD, app uses BTC
+    if (!stockListData || stockListData.length === 0) {
+        throw new Error("FMP API returned no stock data from /stock/list.");
+    }
+     if (!cryptoListData || cryptoListData.length === 0) {
+        throw new Error("FMP API returned no crypto data from /symbol/available-cryptocurrencies.");
+    }
+
+    const stocks: Asset[] = stockListData
+        .filter((s: any) => s.price && s.price > 1 && s.exchangeShortName && ['NASDAQ', 'NYSE'].includes(s.exchangeShortName) && s.type === 'stock')
+        .slice(0, 99) // Adhere to free tier limit
+        .map((s: any) => ({
+            ticker: s.symbol,
+            name: s.name,
+            country: 'US', // Assume US for major exchanges
+            sector: 'N/A', // Sector data requires a separate, premium API call per asset.
+            asset_class: 'EQUITY',
+            price: s.price,
+        }));
+        
+    const cryptos: Asset[] = cryptoListData
+        .filter((c: any) => c.symbol.endsWith('USD')) // Filter for USD pairs
+        .slice(0, 97) // Adhere to free tier limit
+        .map((c: any) => ({
+            ticker: c.symbol.replace('USD', ''), // FMP uses BTCUSD, app expects BTC
             name: c.name,
             country: 'CRYPTO',
             sector: 'Cryptocurrency',
             asset_class: 'CRYPTO',
-            price: c.price,
+            price: undefined, // Price is not in this endpoint, will be fetched on demand
         }));
-        
-        console.log(`Successfully fetched ${stocks.length} stocks and ${cryptos.length} cryptos from FMP.`);
-        return { assets: [...stocks, ...cryptos] };
-
-    } catch (e) {
-        console.error(`[CRITICAL] FMP live asset list fetch failed. Error: ${e.message}. The application will not function correctly without this data.`);
-        // Propagate a user-friendly error to the frontend.
-        throw new Error(`Failed to fetch the list of available assets from the data provider. This could be a temporary issue with the service. Error: ${e.message}`);
-    }
+    
+    console.log(`Successfully fetched ${stocks.length} stocks and ${cryptos.length} cryptos from FMP.`);
+    return { assets: [...stocks, ...cryptos] };
   }, TTL_6_HOURS),
 
   getAssetPriceHistory: async ({ ticker }) => withCache(`price-history-${ticker}`, async () => {
@@ -306,7 +306,7 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
     const isCrypto = assetInfo?.asset_class === 'CRYPTO';
 
     const fmpTicker = isCrypto ? `${ticker}USD` : ticker;
-    const url = `${FMP_BASE_URL}/historical-price-eod/full?symbol=${fmpTicker}&apikey=${FMP_API_KEY}`;
+    const url = `${FMP_BASE_URL}/historical-price-full/${fmpTicker}?apikey=${FMP_API_KEY}`;
     const data = await apiFetch(url);
     const history = (data?.historical || data || []).map((d: any) => ({ date: d.date, price: d.close })).reverse();
     if (history.length > 0) return history;
@@ -320,7 +320,7 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
     const isCrypto = assetInfo?.asset_class === 'CRYPTO';
     const fmpTicker = isCrypto ? `${ticker}USD` : ticker;
 
-    const data = await apiFetch(`${FMP_BASE_URL}/quote?symbol=${fmpTicker}&apikey=${FMP_API_KEY}`);
+    const data = await apiFetch(`${FMP_BASE_URL}/quote/${fmpTicker}?apikey=${FMP_API_KEY}`);
     const quote = data[0];
     if (quote && quote.price != null) {
         return {
@@ -335,9 +335,9 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
     const finalRatios: { label: string; value: string | number }[] = [];
     try {
         const [ratiosResult, profileResult, quoteResult] = await Promise.allSettled([
-            apiFetch(`${FMP_BASE_URL}/ratios-ttm?symbol=${ticker}&apikey=${FMP_API_KEY}`),
-            apiFetch(`${FMP_BASE_URL}/profile?symbol=${ticker}&apikey=${FMP_API_KEY}`),
-            apiFetch(`${FMP_BASE_URL}/quote?symbol=${ticker}&apikey=${FMP_API_KEY}`)
+            apiFetch(`${FMP_BASE_URL}/ratios-ttm/${ticker}?apikey=${FMP_API_KEY}`),
+            apiFetch(`${FMP_BASE_URL}/profile/${ticker}?apikey=${FMP_API_KEY}`),
+            apiFetch(`${FMP_BASE_URL}/quote/${ticker}?apikey=${FMP_API_KEY}`)
         ]);
 
         const ratios = (ratiosResult.status === 'fulfilled' && ratiosResult.value[0]) ? ratiosResult.value[0] : {};
@@ -361,9 +361,9 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
   getFinancialsSnapshot: async ({ ticker }) => withCache(`financials-${ticker}`, async () => {
     try {
         const [incomeResult, balanceResult, cashflowResult] = await Promise.allSettled([
-            apiFetch(`${FMP_BASE_URL}/income-statement?symbol=${ticker}&period=annual&limit=1&apikey=${FMP_API_KEY}`),
-            apiFetch(`${FMP_BASE_URL}/balance-sheet-statement?symbol=${ticker}&period=annual&limit=1&apikey=${FMP_API_KEY}`),
-            apiFetch(`${FMP_BASE_URL}/cash-flow-statement?symbol=${ticker}&period=annual&limit=1&apikey=${FMP_API_KEY}`)
+            apiFetch(`${FMP_BASE_URL}/income-statement/${ticker}?period=annual&limit=1&apikey=${FMP_API_KEY}`),
+            apiFetch(`${FMP_BASE_URL}/balance-sheet-statement/${ticker}?period=annual&limit=1&apikey=${FMP_API_KEY}`),
+            apiFetch(`${FMP_BASE_URL}/cash-flow-statement/${ticker}?period=annual&limit=1&apikey=${FMP_API_KEY}`)
         ]);
         
         const income = (incomeResult.status === 'fulfilled' && incomeResult.value[0]) ? incomeResult.value[0] : {};
@@ -392,15 +392,15 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
   }, TTL_60_DAYS),
 
   getCompanyProfile: async ({ ticker }) => withCache(`profile-${ticker}`, async () => {
-    const data = await apiFetch(`${FMP_BASE_URL}/profile?symbol=${ticker}&apikey=${FMP_API_KEY}`);
+    const data = await apiFetch(`${FMP_BASE_URL}/profile/${ticker}?apikey=${FMP_API_KEY}`);
     const profile = data[0] || {};
     return { description: profile.description, beta: profile.beta };
   }, TTL_60_DAYS),
 
   getDividendInfo: async ({ ticker }) => withCache(`dividend-${ticker}`, async () => {
     const results = await Promise.allSettled([
-      apiFetch(`${FMP_BASE_URL}/dividends?symbol=${ticker}&apikey=${FMP_API_KEY}`),
-      apiFetch(`${FMP_BASE_URL}/quote?symbol=${ticker}&apikey=${FMP_API_KEY}`)
+      apiFetch(`${FMP_BASE_URL}/historical-price-full/stock_dividend/${ticker}?apikey=${FMP_API_KEY}`),
+      apiFetch(`${FMP_BASE_URL}/quote/${ticker}?apikey=${FMP_API_KEY}`)
     ]);
 
     if (results[0].status === 'rejected') {
