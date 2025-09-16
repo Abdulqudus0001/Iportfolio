@@ -553,8 +553,9 @@ const PortfolioView: React.FC<PortfolioViewProps> = ({ setCurrentView }) => {
 
                             {activeTab === 'results' ? (
                                 <div className="space-y-6">
-                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+                                    <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-center">
                                         <Metric label="Expected Return" value={`${(optimizationResult.returns * 100).toFixed(2)}%`} />
+                                        {optimizationResult.realReturn != null && <Metric label="Real Return" value={`${(optimizationResult.realReturn * 100).toFixed(2)}%`} />}
                                         <Metric label="Volatility (Risk)" value={`${(optimizationResult.volatility * 100).toFixed(2)}%`} />
                                         <Metric label="Sharpe Ratio" value={optimizationResult.sharpeRatio.toFixed(3)} />
                                         <Metric label="Currency" value={optimizationResult.currency || 'USD'} />

@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { OptimizationResult } from '../../types';
+import { OptimizationResult, PortfolioAsset } from '../../types';
 import InfoIcon from '../ui/InfoIcon';
 import Tooltip from '../ui/Tooltip';
 import { useUserTier } from '../../context/UserTierContext';
@@ -55,8 +55,31 @@ const PortfolioHealthCheck: React.FC<PortfolioHealthCheckProps> = ({ portfolio }
     if (cryptoWeight > 0.2) riskScore = Math.min(10, riskScore + 2);
     else if (cryptoWeight > 0.1) riskScore = Math.min(10, riskScore + 1);
 
+    // Liquidity Analysis
+    const lowLiquidityWeight = portfolio.weights
+        .filter(a => a.liquidity === 'Low')
+        .reduce((sum, a) => sum + a.weight, 0);
+    
+    let liquidityProfile: { score: 'Good' | 'Fair' | 'Needs Improvement', text: string };
+    if (lowLiquidityWeight > 0.2) {
+        liquidityProfile = {
+            score: 'Needs Improvement',
+            text: `High exposure (${(lowLiquidityWeight * 100).toFixed(0)}%) to low-liquidity assets. This could pose a challenge if you need to sell quickly without impacting prices.`
+        };
+    } else if (lowLiquidityWeight > 0.05) {
+        liquidityProfile = {
+            score: 'Fair',
+            text: `Moderate exposure (${(lowLiquidityWeight * 100).toFixed(0)}%) to low-liquidity assets. Monitor these positions, especially in volatile markets.`
+        };
+    } else {
+        liquidityProfile = {
+            score: 'Good',
+            text: `The portfolio consists mainly of highly liquid assets, which can typically be sold quickly and easily.`
+        };
+    }
 
-    return { score, description, topSectors, riskScore };
+
+    return { score, description, topSectors, riskScore, liquidityProfile };
   }, [portfolio]);
 
   const scoreColors = {
@@ -72,24 +95,24 @@ const PortfolioHealthCheck: React.FC<PortfolioHealthCheckProps> = ({ portfolio }
   }
 
   return (
-    <div className={`grid grid-cols-1 ${tier === UserTier.Basic ? 'md:grid-cols-2' : 'md:grid-cols-3'} gap-6 items-center p-4 rounded-lg bg-light-bg dark:bg-dark-bg`}>
-        {tier === UserTier.Basic && (
+    <div className={`grid grid-cols-1 md:grid-cols-2 gap-6 items-start p-4 rounded-lg bg-light-bg dark:bg-dark-bg`}>
+        <div className="space-y-6">
             <div className="text-center">
-                 <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Risk Score</h4>
-                <div className={`px-4 py-2 rounded-full inline-block font-bold text-lg ${getRiskScoreColor(healthStats.riskScore)}`}>
-                    {healthStats.riskScore} / 10
+                <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Diversification Score</h4>
+                <div className={`px-4 py-2 rounded-full inline-block font-bold text-lg ${scoreColors[healthStats.score]}`}>
+                    {healthStats.score}
                 </div>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">A simple measure of your portfolio's overall risk level. Higher scores indicate higher potential risk and volatility.</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">{healthStats.description}</p>
             </div>
-        )}
-        <div className="text-center">
-            <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Diversification Score</h4>
-            <div className={`px-4 py-2 rounded-full inline-block font-bold text-lg ${scoreColors[healthStats.score]}`}>
-                {healthStats.score}
+            <div className="text-center">
+                <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Liquidity Profile</h4>
+                <div className={`px-4 py-2 rounded-full inline-block font-bold text-lg ${scoreColors[healthStats.liquidityProfile.score]}`}>
+                    {healthStats.liquidityProfile.score}
+                </div>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">{healthStats.liquidityProfile.text}</p>
             </div>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">{healthStats.description}</p>
         </div>
-        <div className={tier === UserTier.Basic ? '' : 'md:col-span-2'}>
+        <div className="space-y-4">
              <div className="flex items-center mb-2">
                 <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400 mr-2">Top Sector Exposures</h4>
                 <Tooltip text="This shows the percentage of your portfolio invested in the top 3 sectors. High concentration in a single sector can increase risk.">

@@ -30,6 +30,7 @@ export interface Asset {
   asset_class: 'EQUITY' | 'CRYPTO' | 'BENCHMARK';
   price?: number;
   is_shariah_compliant?: boolean;
+  liquidity?: 'High' | 'Medium' | 'Low';
 }
 
 export interface PortfolioAsset extends Asset {
@@ -82,6 +83,7 @@ export interface OptimizationResult {
     returns: number;
     volatility: number;
     sharpeRatio: number;
+    realReturn?: number;
     currency?: Currency;
     source?: DataSource;
 }
@@ -219,6 +221,14 @@ export interface BlackLittermanView {
 }
 
 export type View = 'dashboard' | 'assets' | 'portfolio' | 'analytics' | 'community' | 'alerts' | 'comparison' | 'auth';
+
+export interface NewsArticle {
+    title: string;
+    source: string;
+    summary: string;
+    url: string;
+}
+
 
 // --- NEW TYPES ---
 export interface Budget {

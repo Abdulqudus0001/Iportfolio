@@ -157,7 +157,13 @@ const DashboardView: React.FC<DashboardViewProps> = ({ setCurrentView }) => {
                         title="Expected Return" 
                         value={optimizationResult ? `${(optimizationResult.returns * 100).toFixed(2)}%` : 'N/A'}
                         onClick={() => optimizationResult && setCurrentView('portfolio')}
-                    />
+                    >
+                        {optimizationResult?.realReturn != null && (
+                            <span className="text-sm font-semibold text-green-600 dark:text-green-400">
+                                ({(optimizationResult.realReturn * 100).toFixed(2)}% real)
+                            </span>
+                        )}
+                    </StatCard>
                     <StatCard 
                         title="Volatility (Risk)" 
                         value={optimizationResult ? `${(optimizationResult.volatility * 100).toFixed(2)}%` : 'N/A'}
@@ -239,11 +245,15 @@ interface StatCardProps {
     title: string;
     value: string;
     onClick?: () => void;
+    children?: React.ReactNode;
 }
-const StatCard: React.FC<StatCardProps> = ({ title, value, onClick }) => (
+const StatCard: React.FC<StatCardProps> = ({ title, value, onClick, children }) => (
     <Card className={`text-center transition-shadow hover:shadow-xl dark:hover:shadow-blue-900/50 ${onClick && 'cursor-pointer'}`} onClick={onClick}>
         <h4 className="text-sm font-medium text-light-text-secondary dark:text-dark-text-secondary mb-2">{title}</h4>
-        <p className="text-3xl font-bold text-brand-primary">{value}</p>
+        <div className="flex items-baseline justify-center gap-2">
+            <p className="text-3xl font-bold text-brand-primary">{value}</p>
+            {children}
+        </div>
     </Card>
 );
 

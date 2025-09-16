@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Asset, FinancialRatio, Financials, PriceSummary, UserTier, DataSource } from '../types';
+import { Asset, FinancialRatio, Financials, PriceSummary, UserTier, DataSource, NewsArticle } from '../types';
 import { marketDataService } from '../services/marketDataService';
 import Card from './ui/Card';
 import Loader from './ui/Loader';
@@ -60,7 +60,7 @@ const AssetBrowser: React.FC<AssetBrowserProps> = ({ openAiChat }) => {
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
   const [isLoadingList, setIsLoadingList] = useState(true);
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
-  const [assetData, setAssetData] = useState<{ ratios: FinancialRatio[], financials: Financials, summary: PriceSummary } | null>(null);
+  const [assetData, setAssetData] = useState<{ ratios: FinancialRatio[], financials: Financials, summary: PriceSummary, news: NewsArticle[] } | null>(null);
   const { isOnWatchlist, toggleWatchlist } = useWatchlist();
   const [showWatchlistOnly, setShowWatchlistOnly] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -95,8 +95,9 @@ const AssetBrowser: React.FC<AssetBrowserProps> = ({ openAiChat }) => {
       Promise.allSettled([
         marketDataService.getFinancialRatios(selectedAsset.ticker),
         marketDataService.getFinancialsSnapshot(selectedAsset.ticker),
-        marketDataService.getAssetPriceSummary(selectedAsset.ticker)
-      ]).then(([ratiosResult, financialsResult, summaryResult]) => {
+        marketDataService.getAssetPriceSummary(selectedAsset.ticker),
+        marketDataService.getAssetNews(selectedAsset.ticker),
+      ]).then(([ratiosResult, financialsResult, summaryResult, newsResult]) => {
         
         // Handle summary - this one is critical for the view to be useful
         if (summaryResult.status === 'rejected') {
@@ -111,6 +112,10 @@ const AssetBrowser: React.FC<AssetBrowserProps> = ({ openAiChat }) => {
         // Handle financials - non-critical, can fail gracefully
         const financials = financialsResult.status === 'fulfilled' ? financialsResult.value.data : { income: [], balanceSheet: [], cashFlow: [], asOf: 'N/A' };
         if (financialsResult.status === 'rejected') console.warn(`Financials snapshot failed to load for ${selectedAsset.ticker}:`, financialsResult.reason);
+        
+        // Handle News - non-critical
+        const news = newsResult.status === 'fulfilled' ? newsResult.value.data : [];
+        if (newsResult.status === 'rejected') console.warn(`News failed to load for ${selectedAsset.ticker}:`, newsResult.reason);
 
         const hasMeaningfulData = summary.close > 0 || ratios.length > 0;
 
@@ -118,7 +123,7 @@ const AssetBrowser: React.FC<AssetBrowserProps> = ({ openAiChat }) => {
             setError(`Detailed data for assets like ${selectedAsset.ticker} may be limited.`);
             setAssetData(null);
         } else {
-            setAssetData({ ratios, financials, summary });
+            setAssetData({ ratios, financials, summary, news });
         }
       }).catch(err => {
           console.error(`Failed to fetch critical data for ${selectedAsset.ticker}`, err);
@@ -191,6 +196,16 @@ const AssetBrowser: React.FC<AssetBrowserProps> = ({ openAiChat }) => {
         <span className="font-semibold">{value}</span>
     </div>
   );
+  
+  const LiquidityBadge: React.FC<{ liquidity: 'High' | 'Medium' | 'Low' | undefined }> = ({ liquidity }) => {
+    if (!liquidity) return null;
+    const colors = {
+        High: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300',
+        Medium: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300',
+        Low: 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300',
+    };
+    return <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${colors[liquidity]}`}>{liquidity} Liquidity</span>;
+  };
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -288,7 +303,10 @@ const AssetBrowser: React.FC<AssetBrowserProps> = ({ openAiChat }) => {
                  <div className="flex justify-between items-start">
                     <div>
                         <h2 className="text-2xl font-bold text-brand-primary">{selectedAsset.name} ({selectedAsset.ticker})</h2>
-                        <p className="text-light-text-secondary dark:text-dark-text-secondary">{selectedAsset.sector} - {selectedAsset.country}</p>
+                         <div className="flex items-center gap-2 mt-1">
+                             <p className="text-light-text-secondary dark:text-dark-text-secondary">{selectedAsset.sector} - {selectedAsset.country}</p>
+                             <LiquidityBadge liquidity={selectedAsset.liquidity} />
+                         </div>
                     </div>
                      <div className="text-right">
                          <p className="text-2xl font-bold">{assetData?.summary ? `$${assetData.summary.close.toFixed(2)}` : '...'}</p>
@@ -320,6 +338,23 @@ const AssetBrowser: React.FC<AssetBrowserProps> = ({ openAiChat }) => {
 
                     <Card title="Price Chart (1 Year)">
                         <PriceChart ticker={selectedAsset.ticker} />
+                    </Card>
+
+                    <Card title="Recent News">
+                        {assetData.news.length > 0 ? (
+                             <div className="space-y-4 max-h-72 overflow-y-auto pr-2 text-sm">
+                                {assetData.news.map((item, index) => (
+                                    <div key={index} className="border-b dark:border-gray-700 pb-3 last:border-b-0">
+                                        <h4 className="font-bold text-base text-light-text dark:text-dark-text">{item.title}</h4>
+                                        <p className="text-xs italic text-gray-500 dark:text-gray-400">{item.source}</p>
+                                        <p className="my-1 text-light-text-secondary dark:text-dark-text-secondary">{item.summary}</p>
+                                        <a href={item.url} target="_blank" rel="noopener noreferrer" className="text-xs font-semibold text-brand-secondary hover:underline">
+                                            Read More &rarr;
+                                        </a>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : <p className="text-sm text-center text-gray-500">No recent news found for this asset.</p>}
                     </Card>
                     
                     <AdSenseBanner 
