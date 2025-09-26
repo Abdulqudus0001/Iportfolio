@@ -302,6 +302,38 @@ const PortfolioView: React.FC<PortfolioViewProps> = ({ setCurrentView }) => {
         run();
     });
 
+    const handleFindOptimalWeights = () => requestAnalysis(() => {
+        const run = async () => {
+            setIsLoading(true);
+            setOptimizationResult(null);
+            setMcmcResult(null);
+            setActiveTab('results');
+            setError(null);
+
+            try {
+                const result = await portfolioService.optimizeCustomPortfolio(selectedAssets, currency);
+                const optimalResult = result.data;
+                setOptimizationResult(optimalResult);
+                
+                // Update weights in the UI
+                const newWeights: Record<string, number> = {};
+                optimalResult.weights.forEach(asset => {
+                    newWeights[asset.ticker] = asset.weight * 100;
+                });
+                setCustomWeights(newWeights);
+                setSelectedAssets(optimalResult.weights);
+
+            } catch (error) {
+                console.error("Custom optimization error:", error);
+                const errorMessage = error instanceof Error ? error.message : String(error);
+                setError(`Optimization failed: ${errorMessage}. Ensure all selected assets have sufficient historical data.`);
+            } finally {
+                setIsLoading(false);
+            }
+        };
+        run();
+    });
+
     const runAnalysis = (runner: 'mcmc' | 'optimize') => requestAnalysis(() => {
         const run = async () => {
             setIsLoading(true);
@@ -454,8 +486,9 @@ const PortfolioView: React.FC<PortfolioViewProps> = ({ setCurrentView }) => {
                      </div>
                  </div>
              </div>
-              <div className="flex justify-end gap-2">
-                <Button variant="secondary" onClick={normalizeWeights}>Normalize Weights</Button>
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button variant="secondary" onClick={normalizeWeights} disabled={selectedAssets.length < 1}>Normalize Weights</Button>
+                <Button onClick={handleFindOptimalWeights} disabled={selectedAssets.length < 2}>Find Optimal Weights</Button>
                 <Button onClick={handleCalculateCustomMetrics} disabled={selectedAssets.length < 1}>Calculate Metrics</Button>
             </div>
         </div>

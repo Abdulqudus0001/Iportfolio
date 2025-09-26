@@ -369,6 +369,36 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
     return { bestSharpe: bestSharpeResult, simulations, averageWeights: bestSharpeResult.weights };
   },
   
+  optimizeCustomPortfolio: async({ assets, currency }) => {
+    if (assets.length < 2) throw new Error("Optimization requires at least two assets.");
+    
+    const { meanReturns, covMatrix, validAssets } = await getHistoricalDataForAssets(assets);
+    
+    let bestSharpePortfolio = { sharpeRatio: -Infinity, weights: [], returns: 0, volatility: 0 };
+    for (let i = 0; i < 7500; i++) {
+        const rand = Array.from({ length: validAssets.length }, () => Math.random());
+        const total = rand.reduce((a, b) => a + b, 0);
+        if (total === 0) continue;
+        const weights = rand.map(r => r / total);
+        
+        const { returns, volatility, sharpeRatio } = calculatePortfolioMetrics(weights, meanReturns, covMatrix);
+        
+        if (sharpeRatio > bestSharpePortfolio.sharpeRatio) {
+            bestSharpePortfolio = { returns, volatility, sharpeRatio, weights };
+        }
+    }
+    
+    const result: OptimizationResult = {
+        weights: validAssets.map((a, i) => ({ ...a, weight: bestSharpePortfolio.weights[i] })),
+        returns: bestSharpePortfolio.returns,
+        volatility: bestSharpePortfolio.volatility,
+        sharpeRatio: bestSharpePortfolio.sharpeRatio,
+        currency
+    };
+
+    return { data: result, source: 'live' };
+  },
+
   runBlackLittermanOptimization: async ({ assets, views, currency }: { assets: Asset[], views: BlackLittermanView[], currency: string }) => {
     const { covMatrix, validAssets } = await getHistoricalDataForAssets(assets); if (validAssets.length < 2) throw new Error("Black-Litterman requires at least two assets.");
     const riskAversion = 2.5, tau = 0.05;

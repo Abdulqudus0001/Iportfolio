@@ -22,6 +22,10 @@ export const portfolioService = {
     return invokeApiProxy('generateAndOptimizePortfolio', { template, optimizationModel, runner, currency, constraints });
   },
   
+  optimizeCustomPortfolio(assets: Asset[], currency: Currency): Promise<ServiceResponse<OptimizationResult>> {
+    return invokeApiProxy('optimizeCustomPortfolio', { assets, currency });
+  },
+
   runBlackLittermanOptimization(assets: Asset[], views: BlackLittermanView[], currency: Currency): Promise<MCMCResult> {
     return invokeApiProxy('runBlackLittermanOptimization', { assets, views, currency });
   },
