@@ -449,11 +449,16 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
   getRiskReturnContribution: async ({ portfolio }) => {
     const { meanReturns, covMatrix, validAssets } = await getHistoricalDataForAssets(portfolio.weights);
     const weights = validAssets.map(a => portfolio.weights.find(w => w.ticker === a.ticker)?.weight || 0);
-    const { volatility: portfolioVolatility } = calculatePortfolioMetrics(weights, meanReturns, covMatrix);
+    const { returns: portfolioReturns, volatility: portfolioVolatility } = calculatePortfolioMetrics(weights, meanReturns, covMatrix);
     const contributions = validAssets.map((asset, i) => {
         const marginalContribution = dot(weights, covMatrix[i]) * weights[i];
         const riskContribution = portfolioVolatility > 0 ? marginalContribution / portfolioVolatility**2 : 0;
-        return { ticker: asset.ticker, returnContribution: (weights[i] * meanReturns[i]) / dot(weights, meanReturns), riskContribution: isFinite(riskContribution) ? riskContribution : 0 };
+        const returnContribution = portfolioReturns !== 0 ? (weights[i] * meanReturns[i]) / portfolioReturns : 0;
+        return { 
+            ticker: asset.ticker, 
+            returnContribution: isFinite(returnContribution) ? returnContribution : 0, 
+            riskContribution: isFinite(riskContribution) ? riskContribution : 0 
+        };
     });
     return contributions;
   },

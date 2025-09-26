@@ -49,9 +49,9 @@ const PortfolioCompositionCharts: React.FC<PortfolioCompositionChartsProps> = ({
                 <Pie
                     data={data}
                     cx="50%"
-                    cy="50%"
+                    cy="45%"
                     labelLine={false}
-                    outerRadius={100}
+                    outerRadius="75%"
                     fill="#8884d8"
                     dataKey="value"
                     nameKey="name"
@@ -59,7 +59,7 @@ const PortfolioCompositionCharts: React.FC<PortfolioCompositionChartsProps> = ({
                     {data.map((entry, index) => <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />)}
                 </Pie>
                 <Tooltip formatter={(value: number) => `${value.toFixed(2)}%`} />
-                <Legend />
+                <Legend wrapperStyle={{ bottom: 0 }} />
             </PieChart>
         </ResponsiveContainer>
     </div>

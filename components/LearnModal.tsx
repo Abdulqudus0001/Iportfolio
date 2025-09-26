@@ -49,7 +49,7 @@ const learnData = {
   'Feature Guides': [
     {
       term: 'Portfolio Builder',
-      definition: 'This is your main workspace. Use the "Portfolio Mode" dropdown to either select a pre-built strategy template (like Balanced or Aggressive) or choose "Custom Portfolio" to add your own assets and weights manually. After setting up, use the "Actions" card to generate and optimize your portfolio.',
+      definition: 'This is your main workspace. Use the "Portfolio Mode" dropdown to select pre-built strategy templates or choose "Custom Portfolio" for full control. In Custom Mode, you can search and add assets one-by-one, import a list from a CSV file, and manually set their weights. Use the "Clear All" button to quickly restart your selection. Once your assets are chosen, you can either manually calculate metrics based on your weights or use the "Find Optimal Weights" button to let our engine do the work for you.',
     },
     {
       term: 'Analytics View',

@@ -13,9 +13,9 @@ iPortfolio is packed with features that cater to investors of all experience lev
 - **📊 Interactive Dashboard**: A central hub providing a high-level overview of your active portfolio, watchlist, alerts, and key market news.
 - **🔍 Asset Browser**: Search, filter, and analyze thousands of global stocks and cryptocurrencies. View detailed price summaries, key financial ratios, historical charts, and manage a personal watchlist.
 - **🛠️ Portfolio Construction**:
-    - **Manual Mode**: Add assets and define custom weights for full control.
-    - **Strategy Templates**: Use pre-built templates like `Balanced`, `Aggressive`, or `Shariah` to automatically generate a diversified portfolio.
-    - **CSV Import**: Quickly import your holdings from a CSV file.
+    - **Manual Mode**: Add assets and define custom weights for full control. Use the "Clear All" button to quickly restart your selection.
+    - **Strategy Templates**: Use pre-built templates like `Balanced` or `Aggressive` to automatically generate a diversified portfolio.
+    - **CSV Import**: Quickly import your holdings from a CSV file, supporting both simple asset lists and detailed transaction histories (Pro+).
 - **🚀 Advanced Optimization**:
     - **Modern Portfolio Theory (MPT)**: Implements MPT to find the optimal portfolio on the efficient frontier.
     - **Optimization Models**: Choose from fully functional models like Maximize Sharpe Ratio, Minimize Volatility, and Risk Parity.

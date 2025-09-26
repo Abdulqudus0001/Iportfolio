@@ -1,10 +1,12 @@
 
 
+
 import React, { useState, useEffect } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { OptimizationResult, ContributionData } from '../../types';
 import { portfolioService } from '../../services/portfolioService';
 import Loader from '../ui/Loader';
+import { useTheme } from '../../context/ThemeContext';
 
 interface RiskReturnContributionChartProps {
   portfolio: OptimizationResult;
@@ -13,6 +15,7 @@ interface RiskReturnContributionChartProps {
 const RiskReturnContributionChart: React.FC<RiskReturnContributionChartProps> = ({ portfolio }) => {
     const [contributionData, setContributionData] = useState<ContributionData[] | null>(null);
     const [loading, setLoading] = useState(true);
+    const { theme } = useTheme();
 
     useEffect(() => {
         if (portfolio.weights.length > 0) {
@@ -38,6 +41,12 @@ const RiskReturnContributionChart: React.FC<RiskReturnContributionChartProps> = 
     
     const assetsWithNoData = portfolio.weights.filter(w => !contributionData.some(c => c.ticker === w.ticker));
 
+    const themeColors = {
+        light: { text: '#212529', bg: '#ffffff', border: '#cccccc' },
+        dark: { text: '#E0E0E0', bg: '#1E1E1E', border: '#555' }
+    };
+    const currentColors = themeColors[theme];
+
 
     return (
         <div style={{ width: '100%', height: 300 }}>
@@ -51,7 +60,15 @@ const RiskReturnContributionChart: React.FC<RiskReturnContributionChartProps> = 
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="ticker" />
                     <YAxis tickFormatter={(tick) => `${(tick * 100).toFixed(0)}%`} />
-                    <Tooltip formatter={(value: number) => `${(value * 100).toFixed(2)}%`} />
+                    <Tooltip 
+                        formatter={(value: number) => `${(value * 100).toFixed(2)}%`}
+                        contentStyle={{
+                            backgroundColor: currentColors.bg,
+                            borderColor: currentColors.border,
+                        }}
+                        itemStyle={{ color: currentColors.text }}
+                        labelStyle={{ color: currentColors.text, fontWeight: 'bold' }}
+                    />
                     <Legend />
                     <Bar dataKey="returnContribution" fill="#1976D2" name="Return Contribution (%)" />
                     <Bar dataKey="riskContribution" fill="#F44336" name="Risk Contribution (%)" />

@@ -272,6 +272,11 @@ const PortfolioView: React.FC<PortfolioViewProps> = ({ setCurrentView }) => {
         }
     };
 
+    const handleClearSelectedAssets = () => {
+        setSelectedAssets([]);
+        setCustomWeights({});
+    };
+
     const handleCalculateCustomMetrics = () => requestAnalysis(() => {
         const run = async () => {
             setIsLoading(true);
@@ -463,7 +468,14 @@ const PortfolioView: React.FC<PortfolioViewProps> = ({ setCurrentView }) => {
                  <div>
                      <div className="flex justify-between items-center mb-2">
                          <h4 className="font-semibold">Selected Assets ({selectedAssets.length})</h4>
-                         <Button variant="secondary" className="text-xs py-1 px-2" onClick={() => fileInputRef.current?.click()}>Import CSV</Button>
+                         <div className="flex items-center gap-2">
+                             <Button variant="danger" className="text-xs py-1 px-2" onClick={handleClearSelectedAssets} disabled={selectedAssets.length === 0}>
+                                 Clear All
+                             </Button>
+                             <Button variant="secondary" className="text-xs py-1 px-2" onClick={() => fileInputRef.current?.click()}>
+                                 Import CSV
+                             </Button>
+                         </div>
                          <input type="file" ref={fileInputRef} className="hidden" accept=".csv" onChange={handleFileUpload} />
                      </div>
                       <div className="h-48 overflow-y-auto border rounded-md p-2 dark:border-gray-600">
