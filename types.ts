@@ -27,7 +27,7 @@ export interface Asset {
   name: string;
   country: 'US' | 'UK' | 'QATAR' | 'NIGERIA' | 'SAUDI ARABIA' | 'CRYPTO';
   sector: string;
-  asset_class: 'EQUITY' | 'CRYPTO' | 'BENCHMARK';
+  asset_class: 'EQUITY' | 'CRYPTO' | 'BENCHMARK' | 'ETF';
   price?: number;
   is_shariah_compliant?: boolean;
   liquidity?: 'High' | 'Medium' | 'Low';
@@ -67,6 +67,11 @@ export interface PriceDataPoint {
     price: number;
 }
 
+export interface MarketValuationDataPoint {
+    date: string;
+    peRatio: number;
+}
+
 export interface SimulationPoint {
     returns: number;
     volatility: number;
@@ -83,7 +88,6 @@ export interface OptimizationResult {
     returns: number;
     volatility: number;
     sharpeRatio: number;
-    realReturn?: number;
     currency?: Currency;
     source?: DataSource;
 }
@@ -202,6 +206,7 @@ export interface FinancialGoal {
     currentAmount: number;
     targetDate: string;
     linkedPortfolioId?: string;
+    successProbability?: number;
 }
 
 export enum OptimizationModel {

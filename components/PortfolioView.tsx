@@ -231,7 +231,8 @@ const PortfolioView: React.FC<PortfolioViewProps> = ({ setCurrentView }) => {
     };
 
     const normalizeWeights = () => {
-        const total = Object.values(customWeights).reduce((sum, w) => sum + w, 0);
+        // FIX: Explicitly type the reducer parameters to prevent incorrect type inference.
+        const total = Object.values(customWeights).reduce((sum: number, w: number) => sum + w, 0);
         if (total === 0 || total === 100) return;
         const normalized: Record<string, number> = {};
         for (const ticker in customWeights) {
@@ -279,7 +280,8 @@ const PortfolioView: React.FC<PortfolioViewProps> = ({ setCurrentView }) => {
             setActiveTab('results');
             setError(null);
 
-            const totalWeight = Object.values(customWeights).reduce((sum, w) => sum + (w || 0), 0);
+            // FIX: Explicitly type the reducer parameters to prevent incorrect type inference.
+            const totalWeight = Object.values(customWeights).reduce((sum: number, w: number) => sum + (w || 0), 0);
             if (Math.abs(totalWeight - 100) > 1) {
                 setError(`Weights must sum to 100%. Current sum: ${totalWeight.toFixed(2)}%. Please normalize weights first.`);
                 setIsLoading(false);
@@ -553,9 +555,8 @@ const PortfolioView: React.FC<PortfolioViewProps> = ({ setCurrentView }) => {
 
                             {activeTab === 'results' ? (
                                 <div className="space-y-6">
-                                    <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-center">
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
                                         <Metric label="Expected Return" value={`${(optimizationResult.returns * 100).toFixed(2)}%`} />
-                                        {optimizationResult.realReturn != null && <Metric label="Real Return" value={`${(optimizationResult.realReturn * 100).toFixed(2)}%`} />}
                                         <Metric label="Volatility (Risk)" value={`${(optimizationResult.volatility * 100).toFixed(2)}%`} />
                                         <Metric label="Sharpe Ratio" value={optimizationResult.sharpeRatio.toFixed(3)} />
                                         <Metric label="Currency" value={optimizationResult.currency || 'USD'} />

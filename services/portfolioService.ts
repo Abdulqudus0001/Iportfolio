@@ -1,4 +1,4 @@
-import { Asset, OptimizationResult, MCMCResult, PortfolioAsset, PortfolioTemplate, PriceDataPoint, CorrelationData, ContributionData, ConstraintOptions, BacktestResult, Scenario, ScenarioResult, FactorExposures, VaRResult, TaxLossHarvestingResult, OptimizationModel, BlackLittermanView, SavedPortfolio, Currency, DataSource } from '../types';
+import { Asset, OptimizationResult, MCMCResult, PortfolioAsset, PortfolioTemplate, PriceDataPoint, CorrelationData, ContributionData, ConstraintOptions, BacktestResult, Scenario, ScenarioResult, FactorExposures, VaRResult, TaxLossHarvestingResult, OptimizationModel, BlackLittermanView, SavedPortfolio, Currency, DataSource, FinancialGoal } from '../types';
 import { supabase } from './supabaseClient';
 import { ServiceResponse } from './marketDataService';
 
@@ -60,6 +60,10 @@ export const portfolioService = {
   
   async generateRebalancePlan(currentPortfolio: OptimizationResult, targetWeights: PortfolioAsset[]): Promise<{ ticker: string; action: 'BUY' | 'SELL'; amount: string }[]> {
     return invokeApiProxy('generateRebalancePlan', { currentPortfolio, targetWeights });
+  },
+  
+  projectGoal(goal: FinancialGoal, portfolio: OptimizationResult, annualContribution: number): Promise<{ successProbability: number }> {
+    return invokeApiProxy('projectGoal', { goal, portfolio, annualContribution });
   },
 
   async sharePortfolio(portfolio: SavedPortfolio): Promise<string> {

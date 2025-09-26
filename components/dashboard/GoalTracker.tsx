@@ -3,20 +3,43 @@ import Card from '../ui/Card';
 import { useFinancialGoals } from '../../context/FinancialGoalsContext';
 import Button from '../ui/Button';
 import AddGoalModal from './AddGoalModal';
+import { usePortfolio } from '../../context/PortfolioContext';
+import { portfolioService } from '../../services/portfolioService';
+import useLocalStorage from '../../hooks/useLocalStorage';
+import { Budget, FinancialGoal } from '../../types';
+import Loader from '../ui/Loader';
 
 const GoalTracker: React.FC = () => {
-    const { goals } = useFinancialGoals();
+    const { goals, updateGoal } = useFinancialGoals();
     const [isModalOpen, setIsModalOpen] = useState(false);
+    const { optimizationResult } = usePortfolio();
+    const [budget] = useLocalStorage<Budget>('iportfolio-budget', { income: 0, expenses: 0 });
+    const [loadingGoalId, setLoadingGoalId] = useState<string | null>(null);
 
     const hasGoals = goals.length > 0;
+    
+    const handleCalculateProbability = async (goal: FinancialGoal) => {
+        if (!optimizationResult) return;
+        setLoadingGoalId(goal.id);
+        const annualContribution = (budget.income - budget.expenses) * 12;
+        try {
+            const result = await portfolioService.projectGoal(goal, optimizationResult, annualContribution);
+            updateGoal({ ...goal, successProbability: result.successProbability });
+        } catch (error) {
+            console.error("Failed to project goal:", error);
+            alert("Could not calculate goal probability. Please ensure your portfolio is active and try again.");
+        } finally {
+            setLoadingGoalId(null);
+        }
+    };
 
     return (
         <>
         <AddGoalModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} />
-        <Card title="Goal Tracker" className="lg:col-span-1">
+        <Card title="Goal Tracker">
             {hasGoals ? (
                 <div className="space-y-4">
-                    {goals.slice(0, 2).map(goal => {
+                    {goals.slice(0, 3).map(goal => {
                         const progress = goal.targetAmount > 0 ? (goal.currentAmount / goal.targetAmount) * 100 : 0;
                         return (
                             <div key={goal.id}>
@@ -29,9 +52,19 @@ const GoalTracker: React.FC = () => {
                                 <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5">
                                     <div className="bg-brand-secondary h-2.5 rounded-full" style={{ width: `${Math.min(progress, 100)}%` }}></div>
                                 </div>
-                                <p className="text-xs text-right text-gray-500 dark:text-gray-400 mt-1">
-                                    Target Date: {new Date(goal.targetDate).toLocaleDateString()}
-                                </p>
+                                <div className="flex justify-between items-center mt-1">
+                                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                                        Target: {new Date(goal.targetDate).toLocaleDateString()}
+                                    </p>
+                                    {optimizationResult && (
+                                        loadingGoalId === goal.id ? <div className="w-20"><Loader message="" /></div> :
+                                        goal.successProbability !== undefined ? 
+                                            <p className={`text-xs font-bold ${goal.successProbability > 0.7 ? 'text-green-600' : goal.successProbability > 0.4 ? 'text-yellow-600' : 'text-red-600'}`}>
+                                                {(goal.successProbability * 100).toFixed(0)}% Chance
+                                            </p> :
+                                            <button onClick={() => handleCalculateProbability(goal)} className="text-xs text-brand-secondary hover:underline">Calculate</button>
+                                    )}
+                                </div>
                             </div>
                         );
                     })}
