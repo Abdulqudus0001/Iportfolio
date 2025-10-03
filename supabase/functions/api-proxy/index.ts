@@ -30,7 +30,6 @@ interface MCMCResult {
     averageWeights: PortfolioAsset[];
 }
 interface PriceDataPoint { date: string; price: number; }
-interface MarketValuationDataPoint { date: string; peRatio: number; }
 interface FinancialGoal { id: string; name: string; targetAmount: number; currentAmount: number; targetDate: string; }
 interface Scenario { id: string; name: string; description: string; impact: Record<string, number>; }
 interface BlackLittermanView {
@@ -38,6 +37,8 @@ interface BlackLittermanView {
     asset_ticker_2: string; expected_return_diff: number; confidence: number;
 }
 interface ConstraintOptions { maxAssetWeight?: number; maxSectorWeight?: number; }
+interface FactorExposures { alpha: number; beta: number; smb: number; hml: number; }
+
 
 type DataSource = 'live' | 'cache' | 'static';
 interface ServiceResponse<T> { data: T; source: DataSource; }
@@ -131,7 +132,7 @@ const add = (m1: number[][], m2: number[][]): number[][] => m1.map((row, i) => r
 const scale = (matrix: number[][], scalar: number): number[][] => matrix.map(row => row.map(val => val * scalar));
 
 // --- CORE FINANCIAL LOGIC ---
-const getHistoricalDataForAssets = async (assets: Asset[]): Promise<{ returnsMatrix: number[][], meanReturns: number[], covMatrix: number[][], validAssets: Asset[] }> => {
+const getHistoricalDataForAssets = async (assets: Asset[]): Promise<{ returnsMatrix: number[][], meanReturns: number[], covMatrix: number[][], validAssets: Asset[], returnDates: string[] }> => {
     if (assets.length > MAX_ASSETS_FOR_ANALYSIS) throw new Error(`Analysis is limited to ${MAX_ASSETS_FOR_ANALYSIS} assets.`);
     const historyPromises = assets.map(asset => handlers.getAssetPriceHistory({ ticker: asset.ticker }));
     const historyResults = await Promise.allSettled(historyPromises);
@@ -139,26 +140,57 @@ const getHistoricalDataForAssets = async (assets: Asset[]): Promise<{ returnsMat
     const validAssets: Asset[] = [];
     historyResults.forEach((res, i) => { if (res.status === 'fulfilled' && res.value.data.length > 252) { priceHistories[assets[i].ticker] = res.value.data; validAssets.push(assets[i]); } });
     if (validAssets.length < 2) throw new Error("Insufficient historical data for at least two assets to perform analysis.");
+    
     const dateMap: Map<string, Record<string, number>> = new Map();
     validAssets.forEach(asset => priceHistories[asset.ticker].forEach(({ date, price }) => { if (!dateMap.has(date)) dateMap.set(date, {}); dateMap.get(date)![asset.ticker] = price; }));
+    
     const sortedDates = [...dateMap.keys()].sort();
+    
     const alignedPrices: { date: string, prices: Record<string, number> }[] = [];
-    for (const date of sortedDates) { const pricesOnDate = dateMap.get(date)!; if (validAssets.every(asset => pricesOnDate[asset.ticker] !== undefined)) alignedPrices.push({ date, prices: pricesOnDate }); }
-    const recentAlignedPrices = alignedPrices.slice(-504);
+    for (const date of sortedDates) { 
+        const pricesOnDate = dateMap.get(date)!; 
+        if (validAssets.every(asset => pricesOnDate[asset.ticker] !== undefined)) {
+            alignedPrices.push({ date, prices: pricesOnDate });
+        }
+    }
+    
+    // Need N+1 prices for N returns. Using 505 for approx. 2 years of trading days.
+    const recentAlignedPrices = alignedPrices.slice(-505);
+    
     const dailyReturns: Record<string, number[]> = {};
     validAssets.forEach(asset => dailyReturns[asset.ticker] = []);
-    for (let i = 1; i < recentAlignedPrices.length; i++) validAssets.forEach(asset => { const prevPrice = recentAlignedPrices[i - 1].prices[asset.ticker]; const currPrice = recentAlignedPrices[i].prices[asset.ticker]; if (prevPrice > 0) dailyReturns[asset.ticker].push((currPrice / prevPrice) - 1); });
+    
+    const returnDates: string[] = [];
+
+    for (let i = 1; i < recentAlignedPrices.length; i++) {
+        returnDates.push(recentAlignedPrices[i].date);
+        validAssets.forEach(asset => { 
+            const prevPrice = recentAlignedPrices[i - 1].prices[asset.ticker]; 
+            const currPrice = recentAlignedPrices[i].prices[asset.ticker]; 
+            if (prevPrice > 0) {
+                dailyReturns[asset.ticker].push((currPrice / prevPrice) - 1);
+            } else {
+                dailyReturns[asset.ticker].push(0);
+            }
+        }); 
+    }
+
     const returnsMatrix = validAssets.map(asset => dailyReturns[asset.ticker]);
     const meanReturns = returnsMatrix.map(returns => (returns.reduce((a, b) => a + b, 0) / returns.length) * 252);
-    const numAssets = validAssets.length, numReturns = dailyReturns[validAssets[0].ticker].length;
+    
+    const numAssets = validAssets.length, numReturns = returnDates.length;
+    if (numReturns === 0) throw new Error("Could not calculate any daily returns after aligning price data.");
+
     const covMatrix: number[][] = Array(numAssets).fill(0).map(() => Array(numAssets).fill(0));
     for (let i = 0; i < numAssets; i++) for (let j = i; j < numAssets; j++) {
         let covariance = 0; const mean_i = meanReturns[i] / 252, mean_j = meanReturns[j] / 252;
         for (let k = 0; k < numReturns; k++) covariance += (returnsMatrix[i][k] - mean_i) * (returnsMatrix[j][k] - mean_j);
         covariance = (covariance / (numReturns - 1)) * 252; covMatrix[i][j] = covariance; covMatrix[j][i] = covariance;
     }
-    return { returnsMatrix, meanReturns, covMatrix, validAssets };
+    
+    return { returnsMatrix, meanReturns, covMatrix, validAssets, returnDates };
 };
+
 
 const calculatePortfolioMetrics = (weights: number[], meanReturns: number[], covMatrix: number[][]) => {
     const riskFreeRate = 0.042;
@@ -294,25 +326,36 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
   }, TTL_60_DAYS),
   getMarketNews: async () => withCache('market-news-v2', async () => { const data = await apiFetch(`https://newsapi.org/v2/top-headlines?category=business&language=en&pageSize=5&apiKey=${NEWS_API_KEY}`); return (data.articles || []).map((a: any) => ({ title: a.title, source: a.source.name, summary: a.description, url: a.url })); }, TTL_15_MINUTES),
   getAssetNews: async ({ ticker }) => withCache(`asset-news-${ticker}`, async () => { const data = await apiFetch(`https://newsapi.org/v2/everything?q=${ticker}&pageSize=5&sortBy=publishedAt&apiKey=${NEWS_API_KEY}`); return (data.articles || []).map((a: any) => ({ title: a.title, source: a.source.name, summary: a.description, url: a.url })); }, TTL_15_MINUTES),
-  getMarketValuation: async () => withCache('market-valuation-sp500-pe', async() => {
-    const data = await apiFetch(`${FMP_BASE_URL}/historical-price-full/market-index-valuations/^GSPC?serietype=line&apikey=${FMP_API_KEY}`);
-    return (data.historical || []).map((d: any) => ({ date: d.date, peRatio: d.peRatio })).reverse();
-  }, TTL_24_HOURS),
 
   startChatStream: async ({ message, history }) => {
-    if (!GEMINI_API_KEY) throw new Error("Missing GEMINI_API_KEY");
-    const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
-    const model = "gemini-2.5-flash";
-    const chat = ai.chats.create({ model, history });
-    const stream = await chat.sendMessageStream({ message });
-    return new ReadableStream({
-      async start(controller) { for await (const chunk of stream) { const text = chunk.text; if (text) controller.enqueue(new TextEncoder().encode(text)); } controller.close(); },
-    });
+    if (!GEMINI_API_KEY) {
+        throw new Error("AI service configuration error: GEMINI_API_KEY is not set in Supabase secrets.");
+    }
+    try {
+        const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
+        const model = "gemini-2.5-flash";
+        const chat = ai.chats.create({ model, history });
+        const stream = await chat.sendMessageStream({ message });
+        return new ReadableStream({
+            async start(controller) {
+                for await (const chunk of stream) {
+                    const text = chunk.text;
+                    if (text) {
+                        controller.enqueue(new TextEncoder().encode(text));
+                    }
+                }
+                controller.close();
+            },
+        });
+    } catch (e) {
+        console.error("Gemini API call failed:", e.message);
+        throw new Error("The AI service provider returned an error. This might be due to an invalid API key or a problem with your Google Cloud project configuration (e.g., API not enabled, billing not set up).");
+    }
   },
 
   // --- Portfolio Service Logic ---
   calculatePortfolioMetricsFromCustomWeights: async({ assets, weights, currency }) => {
-    const { meanReturns, covMatrix, validAssets } = await getHistoricalDataForAssets(assets);
+    const { meanReturns, covMatrix, validAssets, returnDates } = await getHistoricalDataForAssets(assets);
     const weightVector = validAssets.map(a => (weights[a.ticker] || 0) / 100);
     const { returns, volatility, sharpeRatio } = calculatePortfolioMetrics(weightVector, meanReturns, covMatrix);
     const result = { weights: validAssets.map((a, i) => ({ ...a, weight: weightVector[i] })), returns, volatility, sharpeRatio, currency };
@@ -341,7 +384,7 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
     }
 
     if (selectedAssets.length < 2) throw new Error(`The '${template}' template could not be constructed.`);
-    const { meanReturns, covMatrix, validAssets } = await getHistoricalDataForAssets(selectedAssets);
+    const { meanReturns, covMatrix, validAssets, returnDates } = await getHistoricalDataForAssets(selectedAssets);
 
     if (runner === 'optimize') {
         const equalWeights = Array(validAssets.length).fill(1 / validAssets.length);
@@ -372,7 +415,7 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
   optimizeCustomPortfolio: async({ assets, currency }) => {
     if (assets.length < 2) throw new Error("Optimization requires at least two assets.");
     
-    const { meanReturns, covMatrix, validAssets } = await getHistoricalDataForAssets(assets);
+    const { meanReturns, covMatrix, validAssets, returnDates } = await getHistoricalDataForAssets(assets);
     
     let bestSharpePortfolio = { sharpeRatio: -Infinity, weights: [], returns: 0, volatility: 0 };
     for (let i = 0; i < 7500; i++) {
@@ -400,7 +443,7 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
   },
 
   runBlackLittermanOptimization: async ({ assets, views, currency }: { assets: Asset[], views: BlackLittermanView[], currency: string }) => {
-    const { covMatrix, validAssets } = await getHistoricalDataForAssets(assets); if (validAssets.length < 2) throw new Error("Black-Litterman requires at least two assets.");
+    const { covMatrix, validAssets, returnDates } = await getHistoricalDataForAssets(assets); if (validAssets.length < 2) throw new Error("Black-Litterman requires at least two assets.");
     const riskAversion = 2.5, tau = 0.05;
     const equilibriumReturns = scale(multiply(covMatrix, transpose([Array(validAssets.length).fill(1 / validAssets.length)])), riskAversion)[0];
     const numAssets = validAssets.length, numViews = views.length;
@@ -445,9 +488,9 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
   },
   
   runBacktest: async({ portfolio, timeframe, benchmarkTicker }) => { return { dates: [], portfolioValues: [], benchmarkValues: [], totalReturn: 0.1, benchmarkReturn: 0.08, maxDrawdown: -0.05 }; },
-  getCorrelationMatrix: async({ assets }) => { const { covMatrix, validAssets } = await getHistoricalDataForAssets(assets); return { data: { assets: validAssets.map(a => a.ticker), matrix: covMatrix }, source: 'live'}; },
+  getCorrelationMatrix: async({ assets }) => { const { covMatrix, validAssets, returnDates } = await getHistoricalDataForAssets(assets); return { data: { assets: validAssets.map(a => a.ticker), matrix: covMatrix }, source: 'live'}; },
   getRiskReturnContribution: async ({ portfolio }) => {
-    const { meanReturns, covMatrix, validAssets } = await getHistoricalDataForAssets(portfolio.weights);
+    const { meanReturns, covMatrix, validAssets, returnDates } = await getHistoricalDataForAssets(portfolio.weights);
     const weights = validAssets.map(a => portfolio.weights.find(w => w.ticker === a.ticker)?.weight || 0);
     const { returns: portfolioReturns, volatility: portfolioVolatility } = calculatePortfolioMetrics(weights, meanReturns, covMatrix);
     const contributions = validAssets.map((asset, i) => {
@@ -463,7 +506,7 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
     return contributions;
   },
   runScenarioAnalysis: async ({ portfolio, scenario }: { portfolio: OptimizationResult, scenario: Scenario }) => {
-    const { meanReturns, validAssets } = await getHistoricalDataForAssets(portfolio.weights);
+    const { meanReturns, validAssets, returnDates } = await getHistoricalDataForAssets(portfolio.weights);
     const originalReturn = dot(validAssets.map(a => portfolio.weights.find(w=>w.ticker===a.ticker)!.weight), meanReturns);
     const scenarioReturns = meanReturns.map((r, i) => r * (scenario.impact[validAssets[i].sector] || 1));
     const scenarioReturn = dot(validAssets.map(a => portfolio.weights.find(w=>w.ticker===a.ticker)!.weight), scenarioReturns);
@@ -471,7 +514,7 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
   },
   calculateVaR: async ({ portfolio }) => {
     const portfolioValue = 100000;
-    const { returnsMatrix, validAssets } = await getHistoricalDataForAssets(portfolio.weights);
+    const { returnsMatrix, validAssets, returnDates } = await getHistoricalDataForAssets(portfolio.weights);
     const weights = validAssets.map(a => portfolio.weights.find(w => w.ticker === a.ticker)?.weight || 0);
     const portfolioDailyReturns: number[] = []; const numDays = returnsMatrix[0]?.length || 0;
     for (let i = 0; i < numDays; i++) { let dailyReturn = 0; for (let j = 0; j < validAssets.length; j++) dailyReturn += (returnsMatrix[j][i] || 0) * weights[j]; portfolioDailyReturns.push(dailyReturn); }
@@ -482,7 +525,109 @@ const handlers: Record<string, (payload: any) => Promise<any>> = {
     const cvar95 = losses.length > 0 ? -(losses.reduce((a, b) => a + b, 0) / losses.length) * portfolioValue : 0;
     return { var95, cvar95, portfolioValue };
   },
-  runFactorAnalysis: async () => ({ beta: 1.15, smb: 0.25, hml: -0.12 }),
+  runFactorAnalysis: async ({ portfolio }): Promise<FactorExposures> => {
+    // 1. Fetch Fama-French factor data and sort it chronologically (oldest to newest)
+    const factorDataRes = await withCache('fama-french-daily-factors', async () => {
+        const data = await apiFetch(`${FMP_BASE_URL}/factors/daily?apikey=${FMP_API_KEY}`);
+        if (!Array.isArray(data) || data.length === 0) throw new Error("Fama-French factor data is unavailable.");
+        return data.map(d => ({ date: d.date, mktRf: d.mktrf / 100, smb: d.smb / 100, hml: d.hml / 100, rf: d.rf / 100 }));
+    }, TTL_24_HOURS);
+    
+    const sortedFactors = factorDataRes.data
+        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+        .slice(-504); // Approx 2 years of trading days
+
+    if (sortedFactors.length < 2) throw new Error("Not enough factor data available.");
+
+    // 2. Fetch and process price history for all assets
+    const assetTickers = portfolio.weights.map(a => a.ticker);
+    const historyPromises = assetTickers.map(ticker => handlers.getAssetPriceHistory({ ticker }));
+    const historyResults = await Promise.allSettled(historyPromises);
+
+    const sortedAssetHistories = new Map<string, { date: string, price: number }[]>();
+    const validTickers = new Set<string>();
+    
+    historyResults.forEach((res, i) => {
+        if (res.status === 'fulfilled' && res.value.data.length > 0) {
+            const ticker = assetTickers[i];
+            // Sort newest to oldest for efficient searching
+            const sortedHistory = res.value.data.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+            sortedAssetHistories.set(ticker, sortedHistory);
+            validTickers.add(ticker);
+        }
+    });
+
+    if (validTickers.size < 1) throw new Error("Could not retrieve historical price data for any portfolio asset.");
+
+    // Helper to find the most recent price entry on or before a given date string
+    const findPriceEntryOnOrBefore = (targetDateStr: string, priceHistory: { date: string, price: number }[]): { date: string, price: number } | null => {
+        const targetDateTime = new Date(targetDateStr).getTime();
+        for (const point of priceHistory) {
+            if (new Date(point.date).getTime() <= targetDateTime) {
+                return point;
+            }
+        }
+        return null;
+    };
+
+    // 3. The definitive, calendar-agnostic alignment logic
+    const alignedData = [];
+    for (let i = 1; i < sortedFactors.length; i++) {
+        const currentFactor = sortedFactors[i];
+        const prevFactor = sortedFactors[i - 1];
+
+        let portfolioReturn = 0;
+        let canCalculateForAll = true;
+
+        for (const asset of portfolio.weights) {
+            if (!validTickers.has(asset.ticker) || asset.weight === 0) continue;
+            
+            const history = sortedAssetHistories.get(asset.ticker)!;
+
+            const priceEntryT = findPriceEntryOnOrBefore(currentFactor.date, history);
+            const priceEntryT_minus_1 = findPriceEntryOnOrBefore(prevFactor.date, history);
+
+            // Crucial checks for data validity
+            if (!priceEntryT || !priceEntryT_minus_1 || priceEntryT_minus_1.price <= 0 || priceEntryT.date === priceEntryT_minus_1.date) {
+                canCalculateForAll = false;
+                break;
+            }
+
+            const assetReturn = (priceEntryT.price / priceEntryT_minus_1.price) - 1;
+            portfolioReturn += assetReturn * asset.weight;
+        }
+
+        if (canCalculateForAll) {
+            alignedData.push({
+                portfolioExcessReturn: portfolioReturn - currentFactor.rf,
+                mktRf: currentFactor.mktRf,
+                smb: currentFactor.smb,
+                hml: currentFactor.hml
+            });
+        }
+    }
+
+    // 4. Run Regression
+    if (alignedData.length < 60) {
+        throw new Error(`Not enough overlapping data points for factor regression. Found only ${alignedData.length}. This can happen if assets are new or have different trading calendars than the market factors.`);
+    }
+
+    const y = alignedData.map(d => d.portfolioExcessReturn);
+    const X = alignedData.map(d => [1, d.mktRf, d.smb, d.hml]);
+    const Xt = transpose(X);
+    const XtX = multiply(Xt, X);
+    const XtX_inv = invert(XtX);
+    const Xty = multiply(Xt, transpose([y]));
+    const coeffs = multiply(XtX_inv, Xty);
+    
+    const annualizedAlpha = coeffs[0][0] * 252;
+    return { 
+        alpha: isNaN(annualizedAlpha) ? 0 : annualizedAlpha, 
+        beta: coeffs[1][0], 
+        smb: coeffs[2][0], 
+        hml: coeffs[3][0] 
+    };
+  },
   getOptionChain: async({ticker, date}) => withCache(`options-${ticker}-${date}`, async() => { const data = await apiFetch(`${FMP_BASE_URL}/stock_option_chain?symbol=${ticker}&apikey=${FMP_API_KEY}`); return (data || []).map((o: any) => ({ expirationDate: o.expirationDate, strikePrice: o.strike, lastPrice: o.lastPrice, type: o.optionType })); }, 3600),
   generateRebalancePlan: async () => ([]),
 };

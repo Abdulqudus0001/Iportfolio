@@ -67,11 +67,6 @@ export interface PriceDataPoint {
     price: number;
 }
 
-export interface MarketValuationDataPoint {
-    date: string;
-    peRatio: number;
-}
-
 export interface SimulationPoint {
     returns: number;
     volatility: number;
@@ -163,6 +158,7 @@ export interface FactorExposures {
     beta: number; // Market
     smb: number; // Size
     hml: number; // Value
+    alpha: number; // Alpha (Intercept)
 }
 
 export interface VaRResult {

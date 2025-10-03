@@ -1,13 +1,11 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import Card from './ui/Card';
 import Button from './ui/Button';
 import { usePortfolio } from '../context/PortfolioContext';
 import { useWatchlist } from '../hooks/useWatchlist';
 import { useAlerts } from '../context/AlertsContext';
-import { View, UserTier, MarketValuationDataPoint, SavedPortfolio, PortfolioAsset } from '../types';
+import { View, UserTier, RebalancingAlert } from '../types';
 import PortfolioHealthCheck from './analytics/PortfolioHealthCheck';
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area, ReferenceLine } from 'recharts';
-import { useTheme } from '../context/ThemeContext';
 import MarketNews from './dashboard/MarketNews';
 import GoalTracker from './dashboard/GoalTracker';
 import { useUserTier } from '../context/UserTierContext';
@@ -15,64 +13,72 @@ import BudgetTracker from './dashboard/BudgetTracker';
 import Modal from './ui/Modal'; 
 import { useStrategicTarget } from '../hooks/useStrategicTarget';
 import { useSavedPortfolios } from '../context/SavedPortfoliosContext';
-import { marketDataService } from '../services/marketDataService';
-import Loader from './ui/Loader';
 
+// --- Portfolio Mandate Check ---
+const WarningIcon: React.FC = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-yellow-500 mr-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+);
 
-// --- Market Valuation Chart Component ---
-const MarketValuationChart: React.FC = () => {
-    const [data, setData] = useState<MarketValuationDataPoint[]>([]);
-    const [stats, setStats] = useState<{ avg: number; stdDev: number } | null>(null);
-    const [isLoading, setIsLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-    const { theme } = useTheme();
+const PortfolioMandateCheck: React.FC = () => {
+    const { optimizationResult } = usePortfolio();
+    const { rebalancingAlerts } = useAlerts();
 
-    useEffect(() => {
-        marketDataService.getMarketValuation()
-            .then(response => {
-                if (response.data.length > 0) {
-                    const peRatios = response.data.map(d => d.peRatio);
-                    const avg = peRatios.reduce((a, b) => a + b, 0) / peRatios.length;
-                    const stdDev = Math.sqrt(peRatios.map(x => Math.pow(x - avg, 2)).reduce((a, b) => a + b, 0) / peRatios.length);
-                    setData(response.data);
-                    setStats({ avg, stdDev });
-                } else {
-                    setError("No valuation data available.");
+    const violations = useMemo(() => {
+        if (!optimizationResult || rebalancingAlerts.length === 0) {
+            return [];
+        }
+
+        const breachedAlerts: { alert: RebalancingAlert, actualWeight: number }[] = [];
+        const sectorWeights: Record<string, number> = {};
+        const assetClassWeights: Record<string, number> = {};
+
+        // Calculate current weights
+        optimizationResult.weights.forEach(asset => {
+            sectorWeights[asset.sector] = (sectorWeights[asset.sector] || 0) + asset.weight;
+            assetClassWeights[asset.asset_class] = (assetClassWeights[asset.asset_class] || 0) + asset.weight;
+        });
+
+        rebalancingAlerts.forEach(alert => {
+            if (alert.type === 'sector') {
+                const currentWeight = (sectorWeights[alert.target] || 0) * 100;
+                if (currentWeight > alert.maxWeight) {
+                    breachedAlerts.push({ alert, actualWeight: currentWeight });
                 }
-            })
-            .catch(() => setError("Could not load market valuation data."))
-            .finally(() => setIsLoading(false));
-    }, []);
-    
-    const colors = {
-        light: { text: '#212529', line: '#0D47A1', band: '#42A5F5' },
-        dark: { text: '#E0E0E0', line: '#42A5F5', band: '#0D47A1' }
-    };
-    const themeColors = colors[theme];
+            } else if (alert.type === 'asset_class') {
+                const currentWeight = (assetClassWeights[alert.target] || 0) * 100;
+                if (currentWeight > alert.maxWeight) {
+                    breachedAlerts.push({ alert, actualWeight: currentWeight });
+                }
+            }
+        });
 
-    if (isLoading) return <Loader message="Loading valuation data..." />;
-    if (error) return <p className="text-red-500 text-center">{error}</p>;
+        return breachedAlerts;
+    }, [optimizationResult, rebalancingAlerts]);
+
+    if (violations.length === 0) {
+        return null;
+    }
 
     return (
-        <div className="h-64 w-full">
-            <ResponsiveContainer>
-                <AreaChart data={data}>
-                    <Tooltip contentStyle={{ backgroundColor: theme === 'dark' ? '#333' : '#fff' }} formatter={(value: number) => value.toFixed(2)} />
-                    <XAxis dataKey="date" tick={{ fontSize: 10 }} stroke={themeColors.text} />
-                    <YAxis domain={['dataMin - 5', 'dataMax + 5']} tick={{ fontSize: 10 }} stroke={themeColors.text} />
-                    {stats && (
-                        <>
-                            <ReferenceLine y={stats.avg} label={{ value: "Avg", position: "insideLeft", fill: themeColors.text, fontSize: 10 }} stroke="grey" strokeDasharray="3 3" />
-                            <ReferenceLine y={stats.avg + stats.stdDev} stroke="orange" strokeDasharray="3 3" />
-                            <ReferenceLine y={stats.avg - stats.stdDev} stroke="orange" strokeDasharray="3 3" />
-                        </>
-                    )}
-                    <Area type="monotone" dataKey="peRatio" stroke={themeColors.line} fill={themeColors.band} fillOpacity={0.3} name="P/E Ratio" />
-                </AreaChart>
-            </ResponsiveContainer>
-        </div>
+        <Card className="border-2 border-yellow-400 dark:border-yellow-600 bg-yellow-50 dark:bg-yellow-900/50">
+            <div className="flex">
+                <WarningIcon />
+                <div>
+                    <h3 className="text-lg font-bold text-yellow-800 dark:text-yellow-200">Portfolio Mandate Alert</h3>
+                    <p className="text-sm text-yellow-700 dark:text-yellow-300">Your portfolio has breached the following self-imposed rules:</p>
+                    <ul className="list-disc list-inside mt-2 text-sm text-yellow-700 dark:text-yellow-300 space-y-1">
+                        {violations.map(({ alert, actualWeight }) => (
+                            <li key={alert.id}>
+                                <strong>{alert.target}</strong> exposure is at <strong>{actualWeight.toFixed(1)}%</strong>, exceeding the max limit of {alert.maxWeight}%.
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+            </div>
+        </Card>
     );
 };
+
 
 // --- Strategic Drift Analysis Component ---
 const StrategicDriftAnalysis: React.FC = () => {
@@ -208,6 +214,8 @@ const DashboardView: React.FC<DashboardViewProps> = ({ setCurrentView }) => {
                     </div>
                 </Card>
 
+                <PortfolioMandateCheck />
+
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                     <StatCard title="Expected Return" value={optimizationResult ? `${(optimizationResult.returns * 100).toFixed(2)}%` : 'N/A'} onClick={() => optimizationResult && setCurrentView('portfolio')} />
                     <StatCard title="Volatility (Risk)" value={optimizationResult ? `${(optimizationResult.volatility * 100).toFixed(2)}%` : 'N/A'} onClick={() => optimizationResult && setCurrentView('portfolio')} />
@@ -217,12 +225,7 @@ const DashboardView: React.FC<DashboardViewProps> = ({ setCurrentView }) => {
                 
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     <div className="lg:col-span-2 space-y-6">
-                        {optimizationResult && targetId ? <StrategicDriftAnalysis /> : (
-                            <Card title="S&P 500 P/E Ratio (Trailing Twelve Months)">
-                                <MarketValuationChart />
-                            </Card>
-                        )}
-                        <MarketNews />
+                        {optimizationResult && targetId ? <StrategicDriftAnalysis /> : <MarketNews />}
                     </div>
                     <div className="lg:col-span-1 space-y-6">
                          <GoalTracker />

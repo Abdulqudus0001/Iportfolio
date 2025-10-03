@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { UserTierProvider } from './context/UserTierContext';
 import { PortfolioProvider } from './context/PortfolioContext';
@@ -17,7 +18,7 @@ import DashboardView from './components/DashboardView';
 import CommunityView from './components/CommunityView';
 import { ThemeProvider } from './context/ThemeContext';
 import { FinancialGoalsProvider } from './context/FinancialGoalsContext';
-import { AuthProvider } from './context/AuthContext';
+import { AuthProvider, useAuth } from './context/AuthContext';
 import AuthView from './components/AuthView';
 import ComparisonView from './components/ComparisonView';
 import Tooltip from './components/ui/Tooltip';
@@ -27,10 +28,18 @@ const AppContent: React.FC = () => {
   const { isFirstVisit, closeTour } = useFirstVisit();
   const [isLearnModalOpen, setIsLearnModalOpen] = useState(false);
   const [currentView, setCurrentView] = useState<View>('dashboard');
-  const [isAiChatOpen, setIsAiChatOpen] = useState(false);
-  const [aiInitialPrompt, setAiInitialPrompt] = useState<string | undefined>(undefined);
   const [shareId, setShareId] = useState<string | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const { user } = useAuth();
+  // FIX: Added state for AI Chat Bot to be controlled from the main app content.
+  const [isAiChatOpen, setIsAiChatOpen] = useState(false);
+  const [aiInitialPrompt, setAiInitialPrompt] = useState<string | undefined>();
+
+  // FIX: Created a handler function to open the AI Chat Bot with a specific prompt.
+  const openAiChat = (prompt: string) => {
+    setAiInitialPrompt(prompt);
+    setIsAiChatOpen(true);
+  };
 
   useEffect(() => {
       const params = new URLSearchParams(window.location.search);
@@ -40,21 +49,24 @@ const AppContent: React.FC = () => {
       }
   }, []);
 
-  const openAiChat = (prompt?: string) => {
-      setAiInitialPrompt(prompt);
-      setIsAiChatOpen(true);
-  }
+  useEffect(() => {
+    if (user && currentView === 'auth') {
+      setCurrentView('dashboard');
+    }
+  }, [user, currentView]);
 
   const renderView = () => {
     switch (currentView) {
       case 'dashboard':
         return <DashboardView setCurrentView={setCurrentView} />;
       case 'assets':
+        // FIX: Passed the openAiChat prop to AssetBrowser to resolve missing prop error.
         return <AssetBrowser openAiChat={openAiChat} />;
       case 'portfolio':
         return <PortfolioView setCurrentView={setCurrentView} />;
       case 'analytics':
-        return <AnalyticsView openAiChat={openAiChat}/>;
+        // FIX: Passed the openAiChat prop to AnalyticsView to resolve missing prop error.
+        return <AnalyticsView openAiChat={openAiChat} />;
       case 'community':
         return <CommunityView setCurrentView={setCurrentView} />;
       case 'alerts':
@@ -78,11 +90,6 @@ const AppContent: React.FC = () => {
     comparison: 'Compare saved portfolios side-by-side.',
     auth: 'Sign in or create an account to save and sync portfolios.'
   };
-
-  const handleExplainView = () => {
-      const prompt = `Please explain the purpose and main features of the "${currentView}" page of the iPortfolio application. Keep it concise and easy for a beginner to understand.`;
-      openAiChat(prompt);
-  }
   
   if (shareId) {
     return <SharedPortfolioView shareId={shareId} />;
@@ -92,6 +99,16 @@ const AppContent: React.FC = () => {
     <>
       {isFirstVisit && <GuidedTour onClose={closeTour} />}
       <LearnModal isOpen={isLearnModalOpen} onClose={() => setIsLearnModalOpen(false)} />
+      {/* FIX: Rendered the AIChatBot component and provided necessary props. */}
+      <AIChatBot
+        isOpen={isAiChatOpen}
+        onClose={() => {
+          setIsAiChatOpen(false);
+          setAiInitialPrompt(undefined);
+        }}
+        initialPrompt={aiInitialPrompt}
+        setCurrentView={setCurrentView}
+      />
       
       {/* Overlay for mobile sidebar */}
       {isSidebarOpen && (
@@ -123,11 +140,6 @@ const AppContent: React.FC = () => {
                         </button>
                         <h1 className="text-3xl font-bold text-brand-primary">iPortfolio</h1>
                     </div>
-                   <Tooltip text="Explain This View">
-                       <button onClick={handleExplainView} className="p-2 rounded-full text-light-text-secondary dark:text-dark-text-secondary hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
-                            <MagicWandIcon />
-                       </button>
-                   </Tooltip>
                 </div>
                 <p className="text-light-text-secondary dark:text-dark-text-secondary mb-6">
                   {pageTitles[currentView]}
@@ -135,19 +147,6 @@ const AppContent: React.FC = () => {
                 {renderView()}
            </div>
         </main>
-        <button
-            onClick={() => openAiChat()}
-            className="fixed bottom-6 right-6 bg-brand-primary text-white rounded-full p-4 shadow-lg hover:bg-brand-secondary transition-transform transform hover:scale-110 focus:outline-none z-40"
-            aria-label="Open AI Assistant"
-        >
-            <BotIcon />
-        </button>
-        <AIChatBot 
-            isOpen={isAiChatOpen}
-            onClose={() => setIsAiChatOpen(false)}
-            initialPrompt={aiInitialPrompt}
-            setCurrentView={setCurrentView}
-        />
       </div>
     </>
   );

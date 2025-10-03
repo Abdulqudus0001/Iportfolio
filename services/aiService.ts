@@ -5,13 +5,21 @@ export const aiService = {
     try {
       const { data, error } = await supabase.functions.invoke('api-proxy', {
         body: { command: 'startChatStream', payload: { message, history } },
-        // FIX: 'responseType' is not a valid property for Supabase function invocation.
-        // The function correctly handles the stream from the response body.
       });
 
       if (error) {
         console.error("Error invoking stream function:", error);
-        yield { text: "Error connecting to the AI assistant." };
+        // Try to parse the error message from the function response
+        let errorMessage = "Error connecting to the AI assistant.";
+        if (error.message) {
+            try {
+                const parsed = JSON.parse(error.message);
+                if(parsed.error) errorMessage = parsed.error;
+            } catch (e) {
+                errorMessage = error.message;
+            }
+        }
+        yield { text: `Sorry, I encountered an issue: ${errorMessage}` };
         return;
       }
       
@@ -30,9 +38,10 @@ export const aiService = {
         yield { text: chunk };
       }
 
-    } catch (err) {
+    } catch (err: any) {
       console.error("Error in chat stream:", err);
-      yield { text: "Sorry, I'm having trouble connecting to the AI service right now." };
+      const errorMessage = err.message || "Sorry, I'm having trouble connecting to the AI service right now.";
+      yield { text: `Sorry, I encountered an issue: ${errorMessage}` };
     }
   },
   resetChat: () => {

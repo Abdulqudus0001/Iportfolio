@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { OptimizationResult, Scenario, ScenarioResult } from '../../types';
 import { SCENARIOS } from '../../constants';
 import { portfolioService } from '../../services/portfolioService';
@@ -17,7 +17,20 @@ const ScenarioAnalysis: React.FC<ScenarioAnalysisProps> = ({ portfolio }) => {
   const [selectedScenarioId, setSelectedScenarioId] = useState<string>(SCENARIOS[0].id);
   const [result, setResult] = useState<ScenarioResult | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [customInputs, setCustomInputs] = useState({ tech: 1, energy: 1, financials: 1 });
+  const [customImpacts, setCustomImpacts] = useState<Record<string, number>>({});
+
+  const portfolioSectors = useMemo(() => {
+    return [...new Set(portfolio.weights.map(a => a.sector))];
+  }, [portfolio]);
+
+  useEffect(() => {
+    // Initialize custom impacts when sectors change
+    const initialImpacts: Record<string, number> = {};
+    portfolioSectors.forEach(sector => {
+        initialImpacts[sector] = 1.0;
+    });
+    setCustomImpacts(initialImpacts);
+  }, [portfolioSectors]);
 
   const runAnalysis = async () => {
     setIsLoading(true);
@@ -29,12 +42,7 @@ const ScenarioAnalysis: React.FC<ScenarioAnalysisProps> = ({ portfolio }) => {
             id: 'custom',
             name: 'Custom Scenario',
             description: 'A user-defined market scenario.',
-            impact: {
-                'Technology': customInputs.tech,
-                'Communication Services': customInputs.tech,
-                'Energy': customInputs.energy,
-                'Financial Services': customInputs.financials,
-            }
+            impact: customImpacts
         };
     } else {
         const foundScenario = SCENARIOS.find(s => s.id === selectedScenarioId);
@@ -58,24 +66,29 @@ const ScenarioAnalysis: React.FC<ScenarioAnalysisProps> = ({ portfolio }) => {
   const formatPercent = (value: number) => `${(value * 100).toFixed(2)}%`;
   const selectedScenario = SCENARIOS.find(s => s.id === selectedScenarioId);
 
-  const handleSliderChange = (key: keyof typeof customInputs, value: string) => {
-      setCustomInputs(prev => ({ ...prev, [key]: parseFloat(value) }));
+  const handleSliderChange = (sector: string, value: string) => {
+      setCustomImpacts(prev => ({ ...prev, [sector]: parseFloat(value) }));
   };
 
   const renderCustomBuilder = () => (
-      <div className="space-y-4 pt-4 mt-4 border-t dark:border-gray-600">
+      <div className="space-y-4 pt-4 mt-4 border-t dark:border-gray-600 max-h-60 overflow-y-auto pr-2">
           <h4 className="font-semibold text-gray-700 dark:text-gray-300">Custom Scenario Builder</h4>
-          <div className="space-y-2">
-              <label className="block text-sm">Tech/Comms Shock: <span className="font-bold">{formatPercent(customInputs.tech-1)}</span></label>
-              <input type="range" min="0.5" max="1.5" step="0.05" value={customInputs.tech} onChange={(e) => handleSliderChange('tech', e.target.value)} className="w-full" />
-          </div>
-          <div className="space-y-2">
-              <label className="block text-sm">Energy Shock: <span className="font-bold">{formatPercent(customInputs.energy-1)}</span></label>
-              <input type="range" min="0.5" max="1.5" step="0.05" value={customInputs.energy} onChange={(e) => handleSliderChange('energy', e.target.value)} className="w-full" />
-          </div>
-          <div className="space-y-2">
-              <label className="block text-sm">Financials Shock: <span className="font-bold">{formatPercent(customInputs.financials-1)}</span></label>
-              <input type="range" min="0.5" max="1.5" step="0.05" value={customInputs.financials} onChange={(e) => handleSliderChange('financials', e.target.value)} className="w-full" />
+          <p className="text-xs text-gray-500 dark:text-gray-400">Adjust the sliders to model the performance impact on each sector in your portfolio.</p>
+          <div className="space-y-3">
+              {portfolioSectors.map(sector => (
+                <div key={sector}>
+                  <label className="block text-sm">{sector}: <span className="font-bold">{formatPercent((customImpacts[sector] || 1) - 1)}</span></label>
+                  <input 
+                    type="range" 
+                    min="0.5" 
+                    max="1.5" 
+                    step="0.05" 
+                    value={customImpacts[sector] || 1} 
+                    onChange={(e) => handleSliderChange(sector, e.target.value)} 
+                    className="w-full" 
+                  />
+                </div>
+              ))}
           </div>
       </div>
   );

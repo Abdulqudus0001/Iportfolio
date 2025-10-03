@@ -56,6 +56,10 @@ const learnData = {
       definition: 'Dive deep into your portfolio here. "Composition" shows your allocation by asset, sector, and country. "Correlation" reveals how your assets move in relation to each other (low correlation is good for diversity). "Factor Analysis" breaks down your portfolio\'s exposure to market drivers.',
     },
     {
+      term: 'Factor Analysis',
+      definition: 'This upcoming feature will decompose portfolio returns based on common academic risk factors (Market, Size, Value) to help you understand what truly drives your portfolio\'s performance. Check back soon!',
+    },
+    {
       term: 'Backtesting',
       definition: 'Found in the "Analysis Output" section of the Portfolio view, the backtesting tool simulates how your current portfolio would have performed in the past against a benchmark like the S&P 500. It\'s a powerful way to assess your strategy\'s historical viability.',
     },
@@ -65,7 +69,7 @@ const learnData = {
     },
     {
         term: 'AI Co-Pilot',
-        definition: 'The floating bot icon opens your AI assistant. You can ask it to explain financial concepts, suggest alternative assets if you can\'t find one, or provide a high-level review of your generated portfolio. It can even help you navigate the app.',
+        definition: 'Coming soon! The AI Co-Pilot will be your personal financial assistant. You\'ll be able to ask it to explain complex concepts, get an AI-driven review of your portfolio, and discover new investment ideas.',
     },
   ],
   'Investment Strategies': [
